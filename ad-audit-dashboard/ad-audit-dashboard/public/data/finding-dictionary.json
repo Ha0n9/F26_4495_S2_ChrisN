@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "language": "en",
+  "severityScale": [
+    "Critical",
+    "High",
+    "Medium",
+    "Low",
+    "Info"
+  ],
+  "entries": {
+    "AD.ACCOUNT.STALE_ENABLED": {
+      "technicalName": "Stale enabled user accounts",
+      "title": "Accounts nobody uses are still switched on",
+      "category": "Account hygiene",
+      "defaultSeverity": "High",
+      "whyItMatters": "Every enabled account is a door into the network. Accounts belonging to people who left, or service accounts nobody maintains any more, are rarely monitored and their passwords are rarely changed, so an attacker who guesses or steals one is unlikely to be noticed.",
+      "whatToDo": [
+        "Confirm with the account owner or their manager whether each account is still needed.",
+        "Disable the accounts that are no longer needed, and move them to a dedicated organizational unit so they are easy to review later.",
+        "Delete them after a retention period that suits your organization, typically 30 to 90 days after disabling.",
+        "For service accounts that must stay, document the owner and set a password rotation schedule."
+      ],
+      "objectColumnLabel": "Account",
+      "keyAttributes": [
+        "lastLogonDate",
+        "daysInactive",
+        "whenCreated"
+      ],
+      "references": [
+        {
+          "label": "Microsoft: Active Directory Domain Services documentation",
+          "url": "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/active-directory-domain-services"
+        }
+      ]
+    },
+    "AD.POLICY.WEAK_PASSWORD": {
+      "technicalName": "Weak domain password policy",
+      "title": "The domain password rules are easy to defeat",
+      "category": "Authentication policy",
+      "defaultSeverity": "Critical",
+      "whyItMatters": "The domain password policy sets the floor for every account in the domain. Short passwords can be cracked offline in a short time once an attacker obtains a password hash, and with no lockout threshold an attacker can keep guessing passwords over the network without ever being locked out.",
+      "whatToDo": [
+        "Raise the minimum password length to at least 14 characters in the Default Domain Policy.",
+        "Turn password complexity back on, or replace it with a longer minimum length plus a banned password list.",
+        "Set an account lockout threshold so repeated failed sign-ins are stopped, and pair it with a lockout duration your help desk can live with.",
+        "Test the change on a small group first, because raising these settings affects every user at their next password change."
+      ],
+      "objectColumnLabel": "Policy",
+      "keyAttributes": [
+        "minPasswordLength",
+        "complexityEnabled",
+        "lockoutThreshold"
+      ],
+      "references": [
+        {
+          "label": "Microsoft: Active Directory Domain Services documentation",
+          "url": "https://learn.microsoft.com/en-us/windows-server/identity/ad-ds/active-directory-domain-services"
+        }
+      ]
+    },
+    "AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP": {
+      "technicalName": "Excessive privileged group membership",
+      "title": "Too many people have full control of the domain",
+      "category": "Privilege management",
+      "defaultSeverity": "Critical",
+      "whyItMatters": "Members of Domain Admins can do anything in the domain, including reading every password hash. Each extra member is another account an attacker can target to take over the whole environment, and nested groups make this worse because the real member count is larger than the group appears to hold.",
+      "whatToDo": [
+        "List everyone who is currently a member, including members inherited through nested groups, and confirm each one still needs that level of access.",
+        "Remove day to day user accounts from privileged groups. Give administrators a separate admin account used only for administrative work.",
+        "Avoid nesting ordinary groups such as help desk groups inside privileged groups, because it hides the true membership.",
+        "Review the membership on a fixed schedule, for example once a quarter."
+      ],
+      "objectColumnLabel": "Member",
+      "keyAttributes": [
+        "privilegedGroup",
+        "membershipPath",
+        "isDirectMember"
+      ],
+      "references": [
+        {
+          "label": "Detecting and mitigating Active Directory compromises (joint advisory)",
+          "url": "https://www.cisa.gov/resources-tools/resources/detecting-and-mitigating-active-directory-compromises"
+        }
+      ]
+    },
+    "AD.PRIVILEGE.UNCONSTRAINED_DELEGATION": {
+      "technicalName": "Unconstrained delegation enabled",
+      "title": "Some computers can impersonate any user who connects to them",
+      "category": "Privilege management",
+      "defaultSeverity": "Critical",
+      "whyItMatters": "A computer trusted for unconstrained delegation keeps a copy of the Kerberos ticket of everyone who connects to it. If an attacker controls that computer and a domain administrator connects to it, the attacker can reuse that ticket and take over the domain.",
+      "whatToDo": [
+        "Identify why delegation was configured and whether the service still needs it.",
+        "Replace unconstrained delegation with constrained delegation limited to the specific services required.",
+        "Mark administrative accounts as sensitive and not allowed to be delegated."
+      ],
+      "objectColumnLabel": "Computer",
+      "keyAttributes": [
+        "operatingSystem",
+        "lastLogonDate"
+      ],
+      "references": []
+    }
+  }
+}

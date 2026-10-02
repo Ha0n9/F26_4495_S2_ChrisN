@@ -1,0 +1,49 @@
+/*
+ * Layout only. Component appearance comes from Ant Design tokens.
+ * No gradients, no translucent panels, no hand written shadows.
+ */
+
+:root {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  color-scheme: light dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: inherit;
+}
+
+html {
+  scroll-padding-top: env(safe-area-inset-top, 0px);
+}
+
+body {
+  margin: 0;
+  background: #ffffff;
+}
+
+body[data-theme='dark'] {
+  background: #141414;
+}
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+/* Wide content scrolls inside its own container so the page never scrolls sideways. */
+.scroll-x {
+  overflow-x: auto;
+}
+
+pre.raw-json {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+}
