@@ -22,6 +22,18 @@
 .PARAMETER GroundTruthPath
     Where to write the record of what was seeded.
 
+.PARAMETER AccountPassword
+    Optional password for the seeded accounts, as a SecureString. Leave it
+    unset and each account gets its own random password that is never
+    written down. The seeded accounts exist to be found by the auditing
+    module, not to be signed into, so not knowing their passwords costs
+    nothing.
+
+    Supply one only if you have a reason to sign in as a seeded account:
+
+        $p = Read-Host -AsSecureString 'Lab account password'
+        .\Initialize-VulnerableLab.ps1 -AccountPassword $p
+
 .PARAMETER WhatIf
     Supported throughout. Run it once with -WhatIf before touching the lab.
 
@@ -36,15 +48,93 @@
     only against an isolated lab, never against anything else. Take a VM
     checkpoint first: lowering the password policy is easy to reverse, but
     rebuilding a domain you broke another way is not.
+
+    No password is hardcoded here, and none is written to ground-truth.json.
+    A literal password in source gets committed, then stays in the git
+    history after it is edited out, which is why secret scanners flag it.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [int]    $StaleAccountCount = 3,
-    [string] $GroundTruthPath   = './ground-truth.json'
+    [int]          $StaleAccountCount = 3,
+    [string]       $GroundTruthPath   = './ground-truth.json',
+    [securestring] $AccountPassword
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module ActiveDirectory
+
+function New-LabPassword {
+    <#
+    .SYNOPSIS
+        Returns a random password as a SecureString.
+
+    .DESCRIPTION
+        Built from a cryptographic RNG rather than Get-Random, which is
+        seeded predictably and is not meant for anything security related.
+
+        One character is taken from each class first so the result always
+        satisfies AD complexity, even while this script is in the middle of
+        turning complexity off. The plain text is assembled in a char array
+        and cleared straight after, so it is not left sitting in a string
+        that the garbage collector may keep around.
+    #>
+    [CmdletBinding()]
+    [OutputType([securestring])]
+    param([int] $Length = 24)
+
+    # Ambiguous characters left out, so anything read off a console is
+    # unambiguous if it ever does have to be typed.
+    $classes = @(
+        'ABCDEFGHJKLMNPQRSTUVWXYZ',
+        'abcdefghijkmnopqrstuvwxyz',
+        '23456789',
+        '!@#$%^&*()-_=+'
+    )
+
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $pick = {
+            param([string] $Set)
+            $bytes = [byte[]]::new(4)
+            $rng.GetBytes($bytes)
+            # Mask off the sign bit, then reduce modulo the set size.
+            $value = [BitConverter]::ToUInt32($bytes, 0) % $Set.Length
+            $Set[$value]
+        }
+
+        $chars = [System.Collections.Generic.List[char]]::new()
+        foreach ($class in $classes) { $chars.Add((& $pick $class)) }
+
+        $all = -join $classes
+        while ($chars.Count -lt $Length) { $chars.Add((& $pick $all)) }
+
+        # Shuffle, so the first four characters are not one per class in order.
+        for ($i = $chars.Count - 1; $i -gt 0; $i--) {
+            $bytes = [byte[]]::new(4)
+            $rng.GetBytes($bytes)
+            $j = [BitConverter]::ToUInt32($bytes, 0) % ($i + 1)
+            $tmp = $chars[$i]; $chars[$i] = $chars[$j]; $chars[$j] = $tmp
+        }
+
+        $secure = [securestring]::new()
+        foreach ($c in $chars) { $secure.AppendChar($c) }
+        $secure.MakeReadOnly()
+
+        return $secure
+    }
+    finally {
+        if ($chars) { for ($i = 0; $i -lt $chars.Count; $i++) { $chars[$i] = [char]0 } }
+        $rng.Dispose()
+    }
+}
+
+function Get-SeedPassword {
+    # Honour an explicitly supplied password, otherwise a fresh random one
+    # per account so that compromising one seeded account tells you nothing
+    # about the others.
+    if ($AccountPassword) { return $AccountPassword }
+    return New-LabPassword
+}
 
 $domain = Get-ADDomain -Current LocalComputer
 $root   = $domain.DistinguishedName
@@ -91,8 +181,7 @@ $groupsOu   = New-LabOU -Name 'LabGroups'
 # check is written around never-signed-in plus account age instead.
 # ---------------------------------------------------------------------------
 
-$stalePassword = ConvertTo-SecureString 'REDACTED-LAB-PASSWORD' -AsPlainText -Force
-$staleCreated  = @()
+$staleCreated = @()
 
 foreach ($i in 1..$StaleAccountCount) {
     $name = "stale_user_$i"
@@ -106,7 +195,7 @@ foreach ($i in 1..$StaleAccountCount) {
             -SamAccountName $name `
             -UserPrincipalName "$name@$($domain.DNSRoot)" `
             -Path $staffOu `
-            -AccountPassword $stalePassword `
+            -AccountPassword (Get-SeedPassword) `
             -Enabled $true `
             -Description 'Lab: deliberately stale, never signed in'
         Write-Verbose "Created stale account $name"
@@ -165,7 +254,7 @@ if (-not (Get-ADUser -Filter "SamAccountName -eq '$directUser'" -ErrorAction Sil
             -SamAccountName $directUser `
             -UserPrincipalName "$directUser@$($domain.DNSRoot)" `
             -Path $staffOu `
-            -AccountPassword $stalePassword `
+            -AccountPassword (Get-SeedPassword) `
             -Enabled $true `
             -Description 'Lab: ordinary user deliberately placed in Domain Admins'
     }
@@ -198,7 +287,7 @@ foreach ($i in 1..4) {
                 -SamAccountName $name `
                 -UserPrincipalName "$name@$($domain.DNSRoot)" `
                 -Path $staffOu `
-                -AccountPassword $stalePassword `
+                -AccountPassword (Get-SeedPassword) `
                 -Enabled $true `
                 -Description 'Lab: inherits Domain Admins through nested groups'
         }
