@@ -30,8 +30,21 @@ export function formatTimestampLocal(iso?: string | null): string {
   return parsed.isValid() ? parsed.format('YYYY-MM-DD HH:mm') : String(iso);
 }
 
-/** Turns an attribute key into a column heading: daysInactive -> Days inactive. */
+/**
+ * Turns an attribute key into a column heading: daysInactive becomes
+ * "Days inactive".
+ *
+ * The earlier version capitalised the first character and then capitalised
+ * the first character of the remainder as well, so minPasswordLength came
+ * out as "MIn password length". Split the word, lowercase the whole thing,
+ * then raise the first letter once.
+ */
 export function labelize(key: string): string {
-  const spaced = key.replace(/([A-Z])/g, ' $1').replace(/[_.]/g, ' ');
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1).trim().toLowerCase().replace(/^./, (c) => c.toUpperCase());
+  const words = key
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/[_.]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
