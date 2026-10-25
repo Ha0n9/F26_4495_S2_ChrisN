@@ -1,0 +1,13 @@
+{
+  "name": "ad-audit-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local API that lets the dashboard start an Active Directory scan",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.1"
+  }
+}
