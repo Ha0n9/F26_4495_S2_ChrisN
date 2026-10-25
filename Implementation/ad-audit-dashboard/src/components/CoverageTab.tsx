@@ -44,8 +44,17 @@ export function CoverageTab({ rows }: { rows: CoverageRow[] }) {
       title: 'Detail',
       dataIndex: 'errorMessage',
       key: 'errorMessage',
-      render: (value?: string) =>
-        value ? <Text type="danger">{value}</Text> : <Text type="secondary">No issues reported</Text>,
+      render: (value: string | undefined, row) =>
+      value ? (
+        <Text type="danger">{value}</Text>
+      ) : (
+        // This column is about whether the check ran, not about what it
+        // found. Saying "no issues" here contradicts the Findings column
+        // beside it whenever a completed check reported something.
+        <Text type="secondary">
+          {row.status === 'Completed' ? 'Ran without error' : 'Not attempted'}
+        </Text>
+      ),
     },
   ];
 

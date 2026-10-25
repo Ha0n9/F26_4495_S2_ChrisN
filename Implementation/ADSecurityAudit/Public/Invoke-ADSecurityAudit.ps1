@@ -127,7 +127,7 @@ function Invoke-ADSecurityAudit {
             startedAt     = $startedAt.ToString('yyyy-MM-ddTHH:mm:ssZ')
             completedAt   = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
             moduleName    = 'ADSecurityAudit'
-            moduleVersion = (Get-Module ADSecurityAudit).Version.ToString()
+            moduleVersion = (Get-Module ADSecurityAudit | Select-Object -First 1).Version.ToString()
             domain        = [pscustomobject]@{
                 dnsName                = $domain.DNSRoot
                 netbiosName            = $domain.NetBIOSName
