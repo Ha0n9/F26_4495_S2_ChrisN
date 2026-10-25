@@ -22,6 +22,11 @@ hand written finding dictionary, and presents each finding in plain language
 with a severity rating and a concrete remediation step, for an administrator
 who does not have a security background.
 
+**A local API (`ad-audit-dashboard/server`)** lets the dashboard start a scan
+itself, so the normal path is clicking a button rather than running a command
+and reloading a file. It is optional: without it the dashboard still reads a
+scan result from disk.
+
 The two halves communicate only through JSON. The contract is documented in
 `Implementation/ad-audit-dashboard/CONTRACT.md`.
 
@@ -46,16 +51,19 @@ AD domain  ->  PowerShell module  ->  scan-result.json
 | RSAT | Active Directory Domain Services and Lightweight Directory Services Tools |
 | Domain membership | The machine must be joined to the domain being audited |
 | Account | Any ordinary domain user. Domain Administrator is **not** required |
+| Node.js | Version 18 or later, to run scans from the dashboard |
 
-### For running the dashboard
+### For viewing results only
 
 | Requirement | Detail |
 |---|---|
 | Node.js | Version 18 or later |
 | Browser | Any current browser |
 
-The dashboard can run on a different machine from the scan. The scan produces
-a file; the dashboard reads it.
+Viewing can happen on a different machine from the scan: the scan produces a
+file and the dashboard reads it. Starting a scan from the dashboard cannot,
+because the API runs PowerShell against the domain, so for that everything
+runs on the domain-joined audit workstation.
 
 ### Installing RSAT
 
@@ -114,7 +122,63 @@ cd F26_4495_S2_ChrisN
 
 ---
 
-## 5. Running a scan
+## 5. Running a scan from the dashboard
+
+The normal path. Two terminals, both on the audit workstation, both signed in
+as the audit account, both **non elevated**.
+
+**Terminal 1, the API:**
+
+```powershell
+cd Implementation\ad-audit-dashboard\server
+npm install
+npm start
+```
+
+It prints a link carrying an access token:
+
+```
+http://127.0.0.1:5173/?token=<48 hex characters>
+```
+
+**Terminal 2, the dashboard:**
+
+```powershell
+cd Implementation\ad-audit-dashboard
+npm install
+npm run dev
+```
+
+Open the link from terminal 1, not the plain localhost address. The token is
+removed from the address bar once the page reads it.
+
+A **Run scan** button appears, with a new-account grace period beside it. Set
+that to **0** on a freshly seeded lab, where every account was created minutes
+ago and the default 30 days would excuse all of them.
+
+The token changes every time the API restarts.
+
+### If `npm` will not run
+
+Windows blocks the `npm.ps1` shim by default. Either allow scripts for this
+window:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+```
+
+or call the batch file instead, which is not affected:
+
+```powershell
+npm.cmd start
+```
+
+---
+
+## 6. Running a scan from the command line
+
+Useful while developing a check, and the only option on a machine without
+Node.
 
 From the repository root, in a normal PowerShell session signed in as the
 auditing account:
@@ -153,6 +217,13 @@ Invoke-ADSecurityAudit -CheckId AD.POLICY.WEAK_PASSWORD
 
 # Return the result object as well as writing the file
 Invoke-ADSecurityAudit -PassThru
+
+# Pass parameters to one check without affecting the others.
+# Grace 0 reports accounts created in the last 30 days, which a freshly
+# seeded lab needs and a production domain does not.
+Invoke-ADSecurityAudit -CheckParameter @{
+    'AD.ACCOUNT.STALE_ENABLED' = @{ NewAccountGraceDays = 0 }
+}
 ```
 
 ### Reading the console output
@@ -163,7 +234,7 @@ that fail are recorded rather than allowed to end the scan.
 
 ---
 
-## 6. Viewing the results
+## 7. Viewing a result without the API
 
 ```powershell
 cd Implementation\ad-audit-dashboard
@@ -171,7 +242,9 @@ npm install
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173`.
+Open `http://127.0.0.1:5173` with no token. The dashboard says it is reading
+files directly, and the Run scan button is absent rather than present and
+broken.
 
 The dashboard reads two files from `public/data/`:
 
@@ -180,17 +253,9 @@ The dashboard reads two files from `public/data/`:
 | `scan-result.json` | Produced by a scan. Not committed, because it contains live domain data |
 | `finding-dictionary.json` | Hand written content, committed with the project |
 
-A fresh clone has no `scan-result.json`. Either write one there with the
-`-OutputPath` parameter above, or copy the bundled sample to see the
-interface with illustrative data:
-
-```powershell
-copy public\data\scan-result.sample.json public\data\scan-result.json
-```
-
-The sample is for exploring the interface. It contains findings from checks
-that are not yet implemented, so it is not representative of what a real scan
-currently returns.
+A fresh clone has no `scan-result.json`. Either run a scan, or open one of
+the results committed under `BaselineOutputs/` with the **Open a scan file**
+button.
 
 Buttons in the dashboard:
 
@@ -201,7 +266,7 @@ Buttons in the dashboard:
 
 ---
 
-## 7. Building the test lab
+## 8. Building the test lab
 
 The repository includes a script that creates a deliberately insecure domain
 for testing detection accuracy.
@@ -229,7 +294,7 @@ names.
 
 ---
 
-## 8. Reference lab topology
+## 9. Reference lab topology
 
 The environment this project was developed against, for anyone reproducing
 it:
@@ -257,7 +322,7 @@ sAMAccountName: audit_user
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 **"Unable to find a default server with Active Directory Web Services
 running"**
@@ -293,7 +358,7 @@ Get-WindowsCapability -Online -Name "Rsat.ActiveDirectory*"
 **The dashboard shows "That file could not be read"**
 
 `public/data/scan-result.json` is missing or is not valid JSON. A fresh
-clone has no scan result; see section 6.
+clone has no scan result; see section 5 or 6.
 
 **Checks appear under "could not run"**
 
