@@ -246,6 +246,16 @@ Open `http://127.0.0.1:5173` with no token. The dashboard says it is reading
 files directly, and the Run scan button is absent rather than present and
 broken.
 
+A fresh clone has no `scan-result.json`, so the page opens with an error
+saying there is nothing to read. That is expected. Use **Open a scan file**
+to load one of the results under `BaselineOutputs/`, and it renders.
+
+The finding dictionary is loaded independently of the scan result, so a
+missing scan does not also cost you the explanations. If the dictionary
+itself cannot be read, findings are still shown, listed by check id without
+their plain-language titles, and a warning says so. Findings are never
+hidden because the content layer is missing.
+
 The dashboard reads two files from `public/data/`:
 
 | File | Source |
@@ -289,8 +299,14 @@ builds both direct and nested privileged group membership. It also writes
 
 That file is how detection accuracy is measured: the tool's findings are
 compared against the known seeded misconfigurations to count false positives
-and false negatives. It is not committed, because it lists the lab's account
-names.
+and false negatives.
+
+A copy from this project's own lab is committed under `BaselineOutputs/`,
+alongside the scan results it is compared against, as evidence that the tool
+was run against a live domain rather than sample data. That is safe only
+because `auditlab.test` is isolated and every account in it was created by
+this script. Ground truth from any other domain names real accounts and must
+not be committed.
 
 ---
 

@@ -96,10 +96,34 @@ change what runs.
 
 ## Verified
 
-Tested end to end on Node 22 with PowerShell 7.4.6 against a stand-in module:
-token and origin rejection (401 and 403), health, dictionary, latest scan, a
-live scan through the Vite dev proxy with the grace parameter reaching the
-module, and a second concurrent scan correctly rejected with 409.
+Two separate rounds of testing, which cover different things.
 
-Not tested on Windows with a real domain. Expect to adjust `AUDIT_PWSH` if
-`powershell.exe` is not found.
+**Development, on Linux with Node 22 and PowerShell 7.4.6, against a stand-in
+module.** Token and origin rejection (401 and 403), health, dictionary,
+latest scan, a scan through the Vite dev proxy with the per-check grace
+parameter reaching the module, a second concurrent scan correctly rejected
+with 409, and a missing scan result returning 404 while the dictionary still
+loads.
+
+**On the lab, on Windows 11 with Windows PowerShell 5.1, against the live
+`auditlab.test` domain.** The dashboard started a scan from the Run scan
+button, signed in as the ordinary domain account `audit_user`, and rendered
+three findings across fourteen affected objects in under seven seconds.
+
+The first round proves the API's behaviour, including the failure paths that
+are awkward to reproduce on a real domain. The second proves the whole chain
+works where it has to. Neither replaces the other.
+
+### Known environment issues
+
+`npm.ps1` is blocked by the default Windows execution policy. Either run
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force` in that
+window, or call `npm.cmd` instead.
+
+Run the server in a **non elevated** session signed in as the audit account.
+A child process inherits its parent's security context, so a server started
+from an elevated prompt spawns PowerShell in a local machine context, and the
+Active Directory cmdlets then fail to reach Active Directory Web Services
+with an error that points at the wrong thing.
+
+Set `AUDIT_PWSH` to a full path if `powershell.exe` is not on PATH.

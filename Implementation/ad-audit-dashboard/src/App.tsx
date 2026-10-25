@@ -19,7 +19,23 @@ import { buildCoverageRows, buildFindingRows } from './lib/join';
 import { usePrefersDark } from './theme/useColorScheme';
 import { formatTimestamp } from './lib/format';
 import type { FindingDictionary } from './types/dictionary';
-import type { ScanResult } from './types/scan';
+import { SEVERITIES, type ScanResult } from './types/scan';
+
+/**
+ * Used when the finding dictionary cannot be read.
+ *
+ * CONTRACT.md says a finding whose checkId is missing from the dictionary is
+ * still rendered, using the checkId as its title, because findings must never
+ * be hidden just because the content layer is incomplete. A missing
+ * dictionary file is that same situation at a larger scale, so it gets the
+ * same treatment rather than a blank page.
+ */
+const EMPTY_DICTIONARY: FindingDictionary = {
+  schemaVersion: '1.0',
+  language: 'en',
+  severityScale: [...SEVERITIES],
+  entries: {},
+};
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -41,19 +57,40 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dictionaryWarning, setDictionaryWarning] = useState<string | null>(null);
 
+  /**
+   * The two files are loaded independently rather than with Promise.all.
+   * A fresh clone has no scan result, and under Promise.all that one
+   * rejection also discarded the dictionary, so opening a scan file by hand
+   * afterwards rendered nothing at all.
+   */
   const reload = useCallback(async () => {
     setLoading(true);
     setError(null);
-    try {
-      const [nextScan, nextDictionary] = await Promise.all([loadScanResult(), loadDictionary()]);
-      setScan(nextScan);
-      setDictionary(nextDictionary);
-    } catch (caught) {
-      setError(messageFor(caught));
-    } finally {
-      setLoading(false);
+    setDictionaryWarning(null);
+
+    const [scanOutcome, dictionaryOutcome] = await Promise.allSettled([
+      loadScanResult(),
+      loadDictionary(),
+    ]);
+
+    if (dictionaryOutcome.status === 'fulfilled') {
+      setDictionary(dictionaryOutcome.value);
+    } else {
+      setDictionary(EMPTY_DICTIONARY);
+      setDictionaryWarning(
+        `The finding dictionary could not be read, so findings are shown by check id without their plain-language explanation. ${messageFor(dictionaryOutcome.reason)}`,
+      );
     }
+
+    if (scanOutcome.status === 'fulfilled') {
+      setScan(scanOutcome.value);
+    } else {
+      setError(messageFor(scanOutcome.reason));
+    }
+
+    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -168,6 +205,17 @@ export default function App() {
                 </Space>
               }
               onClose={() => setError(null)}
+            />
+          )}
+
+          {dictionaryWarning && (
+            <Alert
+              type="warning"
+              showIcon
+              closable
+              message="Findings are shown without their explanations"
+              description={dictionaryWarning}
+              onClose={() => setDictionaryWarning(null)}
             />
           )}
 
