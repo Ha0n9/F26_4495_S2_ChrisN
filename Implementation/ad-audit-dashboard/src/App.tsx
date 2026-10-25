@@ -14,6 +14,7 @@ import {
   parseScanResult,
   readJsonFile,
 } from './lib/dataSource';
+import { ApiError, api, apiAvailable } from './lib/api';
 import { buildCoverageRows, buildFindingRows } from './lib/join';
 import { usePrefersDark } from './theme/useColorScheme';
 import { formatTimestamp } from './lib/format';
@@ -23,9 +24,12 @@ import type { ScanResult } from './types/scan';
 const { Paragraph, Text, Title } = Typography;
 
 function messageFor(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.detail ? `${error.message} ${error.detail}` : error.message;
+  }
   if (error instanceof DataError) return error.message;
   if (error instanceof Error) return error.message;
-  return 'An unexpected error occurred while reading the file.';
+  return 'An unexpected error occurred.';
 }
 
 export default function App() {
@@ -34,6 +38,8 @@ export default function App() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [dictionary, setDictionary] = useState<FindingDictionary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -53,6 +59,32 @@ export default function App() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  /**
+   * Start a scan and render the result it returns, rather than writing a file
+   * and asking the reader to reload. The server has already written the file
+   * as well, so a later reload shows the same thing.
+   */
+  const runScan = useCallback(async (newAccountGraceDays: number) => {
+    setScanning(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await api.runScan({ newAccountGraceDays });
+      setScan(response.result);
+      const seconds = (response.durationMs / 1000).toFixed(1);
+      const failed = response.result.scan.checksFailed.length;
+      setNotice(
+        failed > 0
+          ? `Scan finished in ${seconds} seconds. ${failed} check${failed > 1 ? 's' : ''} could not run, so the results are incomplete.`
+          : `Scan finished in ${seconds} seconds. Every requested check completed.`,
+      );
+    } catch (caught) {
+      setError(messageFor(caught));
+    } finally {
+      setScanning(false);
+    }
+  }, []);
 
   const openScanFile = useCallback(async (file: File) => {
     try {
@@ -95,7 +127,9 @@ export default function App() {
             <Text type="secondary">
               {scan
                 ? `Results for ${scan.scan.domain.dnsName}, scanned ${formatTimestamp(scan.scan.completedAt)}`
-                : 'Reading the most recent scan from disk'}
+                : apiAvailable
+                  ? 'Connected to the local API. Run a scan to begin.'
+                  : 'Reading the most recent scan from disk'}
             </Text>
           </div>
 
@@ -103,8 +137,20 @@ export default function App() {
             onScanFile={(file) => void openScanFile(file)}
             onDictionaryFile={(file) => void openDictionaryFile(file)}
             onReload={() => void reload()}
+            onRunScan={(grace) => void runScan(grace)}
             busy={loading}
+            scanning={scanning}
           />
+
+          {notice && (
+            <Alert
+              type="success"
+              showIcon
+              closable
+              message={notice}
+              onClose={() => setNotice(null)}
+            />
+          )}
 
           {error && (
             <Alert

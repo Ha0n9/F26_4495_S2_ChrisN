@@ -1,3 +1,4 @@
+import { api, apiAvailable } from './api';
 import type { FindingDictionary } from '@/types/dictionary';
 import type { ScanResult } from '@/types/scan';
 
@@ -52,11 +53,25 @@ async function fetchJson(path: string): Promise<unknown> {
   return response.json();
 }
 
+/**
+ * Load through the local API when the page has a token, and fall back to the
+ * static files otherwise.
+ *
+ * The fallback is not dead weight. A scan result can be reviewed on a machine
+ * that has no PowerShell and no domain, which is the normal case for anyone
+ * reading somebody else's audit, and that reader should not need the server.
+ */
 export async function loadScanResult(): Promise<ScanResult> {
+  if (apiAvailable) {
+    return parseScanResult(await api.latestScan(), 'the local API');
+  }
   return parseScanResult(await fetchJson(SCAN_PATH), SCAN_PATH);
 }
 
 export async function loadDictionary(): Promise<FindingDictionary> {
+  if (apiAvailable) {
+    return parseDictionary(await api.dictionary(), 'the local API');
+  }
   return parseDictionary(await fetchJson(DICTIONARY_PATH), DICTIONARY_PATH);
 }
 
