@@ -1,0 +1,75 @@
+﻿{
+    "schemaVersion":  "1.0",
+    "scan":  {
+                 "scanId":  "21ed2df3-6376-4c53-a5e6-cbfe367dbd26",
+                 "startedAt":  "2026-10-25T05:21:57Z",
+                 "completedAt":  "2026-10-25T05:21:57Z",
+                 "moduleName":  "ADSecurityAudit",
+                 "moduleVersion":  "System.Object[]",
+                 "domain":  {
+                                "dnsName":  "auditlab.test",
+                                "netbiosName":  "AUDITLAB",
+                                "domainFunctionalLevel":  "Windows2016Domain",
+                                "domainControllerQueried":  "DC01.auditlab.test"
+                            },
+                 "executedBy":  {
+                                    "account":  "AUDITLAB\\audit_user",
+                                    "hadDomainAdminRights":  false
+                                },
+                 "checksRequested":  [
+                                         "AD.ACCOUNT.STALE_ENABLED",
+                                         "AD.POLICY.WEAK_PASSWORD",
+                                         "AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP"
+                                     ],
+                 "checksCompleted":  [
+                                         "AD.POLICY.WEAK_PASSWORD"
+                                     ],
+                 "checksFailed":  [
+                                      {
+                                          "checkId":  "AD.ACCOUNT.STALE_ENABLED",
+                                          "errorMessage":  "Test-StaleEnabledAccount is not implemented yet. See the research notes in this file."
+                                      },
+                                      {
+                                          "checkId":  "AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP",
+                                          "errorMessage":  "Test-ExcessiveAdminMembership is not implemented yet. See the research notes in this file."
+                                      }
+                                  ]
+             },
+    "findings":  [
+                     {
+                         "findingId":  "AD.POLICY.WEAK_PASSWORD:auditlab.test:1",
+                         "checkId":  "AD.POLICY.WEAK_PASSWORD",
+                         "severity":  "Critical",
+                         "detectedAt":  "2026-10-25T05:21:57Z",
+                         "affectedObjectCount":  1,
+                         "affectedObjects":  [
+                                                 {
+                                                     "name":  "Default Domain Policy",
+                                                     "objectClass":  "domainDNS",
+                                                     "distinguishedName":  "DC=auditlab,DC=test",
+                                                     "attributes":  {
+                                                                        "maxPasswordAgeDays":  42,
+                                                                        "minPasswordLength":  7,
+                                                                        "complexityEnabled":  true,
+                                                                        "passwordHistoryCount":  24,
+                                                                        "reversibleEncryptionEnabled":  false,
+                                                                        "lockoutThreshold":  0
+                                                                    }
+                                                 }
+                                             ],
+                         "evidence":  {
+                                          "summary":  "The domain password policy failed 2 of the baseline controls.",
+                                          "parametersUsed":  {
+                                                                 "lockoutThresholdBaseline":  5,
+                                                                 "minPasswordLengthBaseline":  14,
+                                                                 "requireComplexity":  true
+                                                             },
+                                          "query":  "Get-ADDefaultDomainPasswordPolicy",
+                                          "failedControls":  [
+                                                                 "minPasswordLength",
+                                                                 "lockoutThreshold"
+                                                             ]
+                                      }
+                     }
+                 ]
+}

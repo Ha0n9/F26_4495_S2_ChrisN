@@ -120,6 +120,10 @@ function ConvertTo-AuditTimestamp {
         [Nullable[datetime]] $Value
     )
 
+    # PowerShell unwraps a [Nullable[datetime]] parameter when it binds, so
+    # $Value is a plain DateTime here, not a Nullable<DateTime>. Reaching for
+    # $Value.Value therefore throws "You cannot call a method on a
+    # null-valued expression" for every non-null timestamp.
     if ($null -eq $Value) { return $null }
-    return $Value.Value.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    return $Value.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 }

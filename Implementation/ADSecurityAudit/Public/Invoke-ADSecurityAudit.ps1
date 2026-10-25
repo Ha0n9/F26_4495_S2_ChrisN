@@ -37,6 +37,12 @@ function Invoke-ADSecurityAudit {
 
     .PARAMETER PassThru
         Also return the result object, for piping or inspection.
+    
+    .PARAMETER CheckParameter
+        Per-check parameter overrides, keyed by check id. For example
+        @{ 'AD.ACCOUNT.STALE_ENABLED' = @{ NewAccountGraceDays = 0 } }
+        reports accounts created in the last 30 days, which a freshly seeded
+        test lab needs and a production domain does not.
 
     .EXAMPLE
         Invoke-ADSecurityAudit -Verbose
@@ -50,10 +56,11 @@ function Invoke-ADSecurityAudit {
     #>
     [CmdletBinding()]
     param(
-        [string]   $DomainName,
-        [string]   $OutputPath = './scan-result.json',
-        [string[]] $CheckId,
-        [switch]   $PassThru
+        [string]    $DomainName,
+        [string]    $OutputPath = './scan-result.json',
+        [string[]]  $CheckId,
+        [hashtable] $CheckParameter = @{},
+        [switch]    $PassThru
     )
 
     # The registry of checks. Adding a check means adding a file under
@@ -96,7 +103,10 @@ function Invoke-ADSecurityAudit {
         Write-Verbose "Running $id ($function)"
 
         try {
-            $result = & $function -DomainName $domain.DNSRoot -ErrorAction Stop
+            # Per-check tuning, so a caller can change one check's thresholds
+            # without affecting the others or editing the check itself.
+            $extra = if ($CheckParameter.ContainsKey($id)) { $CheckParameter[$id] } else { @{} }
+            $result = & $function -DomainName $domain.DNSRoot @extra -ErrorAction Stop
             if ($result) { $findings.AddRange(@($result)) }
             $completed.Add($id)
         }
