@@ -1,0 +1,43 @@
+﻿{
+    "seededAt":  "2026-10-25T05:34:46Z",
+    "domain":  "auditlab.test",
+    "expected":  {
+                     "AD.ACCOUNT.STALE_ENABLED":  {
+                                                      "shouldDetect":  true,
+                                                      "objects":  [
+                                                                      "stale_user_1",
+                                                                      "stale_user_2",
+                                                                      "stale_user_3"
+                                                                  ],
+                                                      "note":  "Enabled, never signed in, so LastLogonDate is null."
+                                                  },
+                     "AD.POLICY.WEAK_PASSWORD":  {
+                                                     "shouldDetect":  true,
+                                                     "objects":  [
+                                                                     "Default Domain Policy"
+                                                                 ],
+                                                     "failedControls":  [
+                                                                            "minPasswordLength",
+                                                                            "complexityEnabled",
+                                                                            "lockoutThreshold"
+                                                                        ]
+                                                 },
+                     "AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP":  {
+                                                                     "shouldDetect":  true,
+                                                                     "objects":  [
+                                                                                     "lab_overprivileged",
+                                                                                     "lab_helpdesk_1",
+                                                                                     "lab_helpdesk_2",
+                                                                                     "lab_helpdesk_3",
+                                                                                     "lab_helpdesk_4"
+                                                                                 ],
+                                                                     "note":  "One direct member, plus 4 users inheriting through Domain Admins \u003c- LabITSupport \u003c- LabHelpdeskL1."
+                                                                 }
+                 },
+    "originalPasswordPolicy":  {
+                                   "minPasswordLength":  7,
+                                   "complexityEnabled":  true,
+                                   "lockoutThreshold":  0,
+                                   "passwordHistoryCount":  24
+                               }
+}

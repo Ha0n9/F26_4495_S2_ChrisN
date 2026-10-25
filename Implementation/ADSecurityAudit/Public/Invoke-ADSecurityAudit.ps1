@@ -138,8 +138,18 @@ function Invoke-ADSecurityAudit {
     # Depth 10 because findings nest four or five levels deep. The default of
     # 2 silently truncates the attribute bags into type names, which looks
     # like working output until you open the file.
-    $json = $result | ConvertTo-Json -Depth 10
-    Set-Content -Path $OutputPath -Value $json -Encoding UTF8
+        $json = $result | ConvertTo-Json -Depth 10
+
+    # Create the parent directory if it is missing, then fail loudly if the
+    # write does not happen. Set-Content fails non-terminating by default, so
+    # without -ErrorAction Stop this function carried on and reported success
+    # for a file it never wrote.
+    $parent = Split-Path -Path $OutputPath -Parent
+    if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+        Write-Verbose "Created output directory $parent"
+    }
+    Set-Content -Path $OutputPath -Value $json -Encoding UTF8 -ErrorAction Stop
 
     Write-Verbose "Wrote $($findings.Count) finding(s) to $OutputPath"
     if ($failed.Count) {

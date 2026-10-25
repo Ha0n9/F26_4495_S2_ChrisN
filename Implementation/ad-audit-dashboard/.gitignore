@@ -8,3 +8,4 @@ dist
 # Real scan output must never be committed. It contains live AD data.
 public/data/scan-result.json
 !public/data/scan-result.sample.json
+tsconfig.tsbuildinfo
