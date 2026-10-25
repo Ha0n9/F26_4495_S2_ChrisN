@@ -43,3 +43,9 @@ AD domain -> PowerShell module -> scan-result.json ->
 Scan output contains live infrastructure detail: account names, group
 structure, delegation paths. Real scan results are never committed, and the
 dashboard runs on localhost only with no cloud dependency.
+
+
+## Installation and demo
+
+See [INSTALL.md](INSTALL.md) for requirements, setup, how to run a scan, and
+how to view the results.
