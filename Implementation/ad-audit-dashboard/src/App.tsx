@@ -141,17 +141,32 @@ export default function App() {
     }
   }, []);
 
+  /**
+   * The dictionary must never gate the scan.
+   *
+   * CONTRACT.md requires a finding to be rendered even when its checkId is
+   * missing from the dictionary, and a dictionary that is absent entirely is
+   * the same situation at a larger scale. An earlier version of this file
+   * required both halves before drawing anything, so a null dictionary
+   * produced a page that rendered its own title and then nothing at all, with
+   * no error and no warning to explain the emptiness. A tool that reports a
+   * blank screen instead of what it does know is worse than one that reports
+   * partial results, which is the same principle that keeps checksFailed
+   * separate from checksCompleted.
+   */
+  const content = dictionary ?? EMPTY_DICTIONARY;
+
   const findingRows = useMemo(
-    () => (scan && dictionary ? buildFindingRows(scan, dictionary) : []),
-    [scan, dictionary],
+    () => (scan ? buildFindingRows(scan, content) : []),
+    [scan, content],
   );
   const coverageRows = useMemo(
-    () => (scan && dictionary ? buildCoverageRows(scan, dictionary) : []),
-    [scan, dictionary],
+    () => (scan ? buildCoverageRows(scan, content) : []),
+    [scan, content],
   );
 
   const failedCount = scan?.scan.checksFailed.length ?? 0;
-  const ready = Boolean(scan && dictionary);
+  const ready = Boolean(scan);
 
   return (
     <ConfigProvider theme={{ algorithm: dark ? theme.darkAlgorithm : theme.defaultAlgorithm }}>
