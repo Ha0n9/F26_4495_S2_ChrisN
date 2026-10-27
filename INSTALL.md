@@ -371,10 +371,17 @@ Get-WindowsCapability -Online -Name "Rsat.ActiveDirectory*"
 [Environment]::Is64BitProcess
 ```
 
+**The dashboard says there is no scan file yet**
+
+A fresh clone has no `public/data/scan-result.json`, because real scan output
+must never be committed. Run a scan as in section 5 or 6, or use **Open a scan
+file** to load one of the results under `BaselineOutputs/`.
+
 **The dashboard shows "That file could not be read"**
 
-`public/data/scan-result.json` is missing or is not valid JSON. A fresh
-clone has no scan result; see section 5 or 6.
+The file exists but is not valid JSON. This is a different problem from the one
+above and the dashboard words them differently on purpose. Check that the file
+was written by the module and not truncated part way through a scan.
 
 **Checks appear under "could not run"**
 

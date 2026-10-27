@@ -75,9 +75,13 @@ to need PowerShell, a domain, or the machine the scan ran on.
 |---|---|---|
 | `public/data/scan-result.json` | A scan, via the API or the module directly | No |
 | `public/data/finding-dictionary.json` | Hand written content | Yes |
+| `public/data/scan-baseline.json` | A scan of the lab, kept as evidence | Yes |
 
-A fresh clone has no `scan-result.json`. Either run a scan, or open one of the
-results under `BaselineOutputs/` with **Open a scan file**.
+A fresh clone has no `scan-result.json`, because real scan output must never be
+committed. Either run a scan, or open `scan-baseline.json` with **Open a scan
+file**. That baseline is a deliberately incomplete scan, with one check that
+ran and two that did not, so it is also the quickest way to see how the tool
+reports ground it was unable to examine.
 
 ## The JSON contract
 
@@ -140,6 +144,21 @@ module, so the module stays free of presentation logic and the weighting can
 change without re-running a scan. It takes the whole scan rather than just the
 findings, because a score computed from findings alone reports 100 for a scan
 where every check failed.
+
+**The dictionary never gates the scan.** `App.tsx` renders as soon as a scan is
+present, falling back to an empty dictionary when the content layer is missing.
+An earlier version required both halves, so a null dictionary produced a page
+that drew its own title and then nothing at all, with no error and no warning
+to explain the emptiness. That is the same principle as `checksFailed` being
+separate from `checksCompleted`: showing what is known, and saying what is not,
+beats showing nothing.
+
+**A missing file is not a corrupt file.** The dev server answers a request for
+a file that is not there with `index.html` and a 200, rather than a 404, so the
+HTML reached `JSON.parse` and the reader was told their scan file was invalid
+when in fact no scan file existed. `lib/dataSource.ts` checks the content type
+before parsing and raises `MissingFileError`, which carries the wording that
+sends the reader to run a scan rather than to investigate a damaged file.
 
 ## Not done yet
 
