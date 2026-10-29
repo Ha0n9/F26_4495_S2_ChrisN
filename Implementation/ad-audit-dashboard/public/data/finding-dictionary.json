@@ -101,6 +101,37 @@
         "lastLogonDate"
       ],
       "references": []
+    },
+    "AD.PRIVILEGE.KERBEROASTING": {
+      "technicalName": "Kerberoastable service accounts",
+      "title": "Service accounts whose passwords can be cracked offline",
+      "category": "Privilege management",
+      "defaultSeverity": "High",
+      "whyItMatters": "These accounts run services, so they are registered in the directory under a service name. Active Directory is designed to hand any signed-in user a ticket for a registered service, and that ticket is locked with the service account's own password. An attacker with any ordinary account, even a brand new one, can therefore collect those tickets and then try to guess the passwords on their own computer, where no lockout stops them and nothing in your logs looks unusual. The whole attack needs no special permission at all. If one of these accounts is also an administrator, cracking its password hands over the entire domain.",
+      "whatToDo": [
+        "Give each of these accounts a long random password, 25 characters or more. Length is what defeats offline guessing, and nobody has to type a service account password by hand.",
+        "Remove any of these accounts from Domain Admins and other administrative groups. A service almost never needs domain-wide rights, and those are the accounts worth the attacker's time.",
+        "Set the account to use AES encryption only, by ticking the two AES options under the account's Delegation or Account tab. Accounts left on the default still accept the older RC4 encryption, which is far quicker to crack.",
+        "Where the service supports it, replace the account with a group managed service account. The directory then generates and rotates the password itself and this problem goes away.",
+        "Remove the service name registration from any account that no longer runs a service."
+      ],
+      "objectColumnLabel": "Service account",
+      "keyAttributes": [
+        "servicePrincipalNames",
+        "rc4Permitted",
+        "passwordAgeDays",
+        "isPrivileged"
+      ],
+      "references": [
+        {
+          "label": "Joint advisory: Detecting and mitigating Active Directory compromises",
+          "url": "https://www.cisa.gov/resources-tools/resources/detecting-and-mitigating-active-directory-compromises"
+        },
+        {
+          "label": "Microsoft: Group managed service accounts overview",
+          "url": "https://learn.microsoft.com/en-us/windows-server/security/group-managed-service-accounts/group-managed-service-accounts-overview"
+        }
+      ]
     }
   }
 }

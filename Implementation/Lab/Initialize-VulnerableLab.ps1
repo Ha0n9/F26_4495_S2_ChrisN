@@ -308,6 +308,110 @@ $groundTruth.expected['AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP'] = [ordered]@{
 }
 
 # ---------------------------------------------------------------------------
+# 4. Kerberoastable service accounts
+#
+# Three shapes, because the check grades them differently and a lab that only
+# seeds the worst case never proves the grading works.
+#
+#   lab_svc_sql     service principal name, encryption types left unset, so
+#                   the key distribution centre still offers RC4
+#   lab_svc_web     two service principal names, AES only, which is the
+#                   configuration the remediation advice asks for
+#   lab_svc_backup  service principal name and Domain Admins membership, the
+#                   case where one cracked password is the whole domain
+#
+# One thing this cannot seed is an old password. PasswordLastSet is
+# maintained by the directory and cannot be written, so the stale-password
+# path is covered by the unit tests rather than here. The same limit applies
+# to lastLogonTimestamp in section 1, and for the same reason.
+# ---------------------------------------------------------------------------
+
+function New-LabServiceAccount {
+    param(
+        [string]   $Name,
+        [string[]] $Spns,
+        [AllowNull()] $EncryptionTypes,
+        [string]   $Description
+    )
+
+    if (Get-ADUser -Filter "SamAccountName -eq '$Name'" -ErrorAction SilentlyContinue) {
+        Write-Verbose "$Name already exists"
+        return
+    }
+    if (-not $PSCmdlet.ShouldProcess($Name, 'Create service account with a service principal name')) {
+        return
+    }
+
+    $arguments = @{
+        Name                  = $Name
+        SamAccountName        = $Name
+        UserPrincipalName     = "$Name@$($domain.DNSRoot)"
+        Path                  = $serviceOu
+        AccountPassword       = (Get-SeedPassword)
+        Enabled               = $true
+        PasswordNeverExpires  = $true
+        ServicePrincipalNames = $Spns
+        Description           = $Description
+    }
+    # Left unset on purpose for the RC4 case. An absent attribute is not the
+    # same as a zero, and the check has to treat both as RC4 permitted, so
+    # the lab seeds the absent case rather than writing a zero.
+    if ($null -ne $EncryptionTypes) {
+        $arguments['OtherAttributes'] = @{ 'msDS-SupportedEncryptionTypes' = $EncryptionTypes }
+    }
+
+    New-ADUser @arguments
+    Write-Verbose "Created service account $Name"
+}
+
+New-LabServiceAccount -Name 'lab_svc_sql' `
+    -Spns @("MSSQLSvc/db01.$($domain.DNSRoot):1433") `
+    -EncryptionTypes $null `
+    -Description 'Lab: kerberoastable, encryption types unset so RC4 is offered'
+
+# 24 is AES128 plus AES256 with no RC4 bit, which is what hardening this
+# attribute actually looks like.
+New-LabServiceAccount -Name 'lab_svc_web' `
+    -Spns @("HTTP/web01.$($domain.DNSRoot)", "HTTP/intranet.$($domain.DNSRoot)") `
+    -EncryptionTypes 24 `
+    -Description 'Lab: kerberoastable but AES only, the lower-severity case'
+
+New-LabServiceAccount -Name 'lab_svc_backup' `
+    -Spns @("BackupSvc/backup01.$($domain.DNSRoot)") `
+    -EncryptionTypes $null `
+    -Description 'Lab: kerberoastable and privileged, the worst case'
+
+if ($PSCmdlet.ShouldProcess('lab_svc_backup', "Add to $($domainAdmins.Name)")) {
+    Add-ADGroupMember -Identity $domainAdmins -Members 'lab_svc_backup' -ErrorAction SilentlyContinue
+
+    # adminCount is normally set by the SDProp task on the domain controller,
+    # which runs every 60 minutes by default. A scan run straight after
+    # seeding would therefore see the account as unprivileged and grade the
+    # finding High instead of Critical, through no fault of the check. Setting
+    # it here does by hand what the directory would do within the hour, so the
+    # lab is consistent the moment the script finishes.
+    Set-ADUser -Identity 'lab_svc_backup' -Replace @{ adminCount = 1 } -ErrorAction SilentlyContinue
+}
+
+# Seeded after section 3, so the privileged membership expectation has to be
+# extended rather than replaced. This account is genuinely expected by both
+# checks, and ground truth that mentioned only one of them would score the
+# other as a false positive.
+$groundTruth.expected['AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP'].objects =
+    @($groundTruth.expected['AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP'].objects) + 'lab_svc_backup'
+$groundTruth.expected['AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP'].note +=
+    ' lab_svc_backup is also a direct member, seeded in section 4.'
+
+$groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'] = [ordered]@{
+    shouldDetect     = $true
+    objects          = @('lab_svc_sql', 'lab_svc_web', 'lab_svc_backup')
+    expectedSeverity = 'Critical'
+    note             = 'Three user accounts with service principal names. lab_svc_sql and lab_svc_backup leave msDS-SupportedEncryptionTypes unset so RC4 is permitted; lab_svc_web is AES only. lab_svc_backup is privileged, which is what raises the finding to Critical. krbtgt also holds an SPN and must not be reported.'
+    mustNotDetect    = @('krbtgt')
+    notSeeded        = 'An old password, because PasswordLastSet is maintained by the directory and cannot be written.'
+}
+
+# ---------------------------------------------------------------------------
 
 if ($PSCmdlet.ShouldProcess($GroundTruthPath, 'Write ground truth')) {
     $groundTruth | ConvertTo-Json -Depth 10 | Set-Content -Path $GroundTruthPath -Encoding UTF8

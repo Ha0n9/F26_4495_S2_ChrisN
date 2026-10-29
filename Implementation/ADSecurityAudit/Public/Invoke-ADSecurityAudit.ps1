@@ -69,6 +69,7 @@ function Invoke-ADSecurityAudit {
         'AD.ACCOUNT.STALE_ENABLED'                = 'Test-StaleEnabledAccount'
         'AD.POLICY.WEAK_PASSWORD'                 = 'Test-WeakPasswordPolicy'
         'AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP' = 'Test-ExcessiveAdminMembership'
+        'AD.PRIVILEGE.KERBEROASTING'              = 'Test-KerberoastableAccount'
     }
 
     $requested = if ($CheckId) {

@@ -6,20 +6,28 @@ to render.
 
 ## Status
 
-Three checks are implemented and have been run against a live domain
-(`auditlab.test`) from an ordinary domain user account.
+Four checks are implemented. The first three have been run against a live
+domain (`auditlab.test`) from an ordinary domain user account.
 
 | Check | Id | Severity | Status |
 |---|---|---|---|
 | Weak domain password policy | `AD.POLICY.WEAK_PASSWORD` | Critical or High | Implemented |
 | Stale enabled accounts | `AD.ACCOUNT.STALE_ENABLED` | High | Implemented |
 | Excessive privileged group membership | `AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP` | Critical | Implemented |
+| Kerberoastable service accounts | `AD.PRIVILEGE.KERBEROASTING` | Critical, High or Medium | Implemented |
 
 Remaining checks from the proposal, in the order they will be attempted:
-Kerberoasting exposure, unconstrained delegation, risky GPO settings, domain
-trust relationships, LAPS deployment. The first two are prioritised because
-both are named in the CISA, NSA and ASD joint advisory on Active Directory
-compromise.
+unconstrained delegation, risky GPO settings, domain trust relationships,
+LAPS deployment. Unconstrained delegation is next because it, like
+Kerberoasting, is named in the CISA, NSA and ASD joint advisory on Active
+Directory compromise.
+
+The Kerberoasting check derives its severity from what it finds rather than
+declaring one. A service account that is also privileged is Critical, RC4 or
+a long-unchanged password is High, and service accounts that are all AES and
+all recently rotated are Medium. The last tier exists because reporting a
+well-configured service account at High teaches an administrator that the
+check cries wolf.
 
 ## Requirements
 
@@ -87,9 +95,11 @@ ADSecurityAudit/
       Test-WeakPasswordPolicy.ps1
       Test-StaleEnabledAccount.ps1
       Test-ExcessiveAdminMembership.ps1
+      Test-KerberoastableAccount.ps1
   Tests/
     verify-stale-check.ps1      32 assertions
     verify-admin-check.ps1      28 assertions
+    verify-kerberoast-check.ps1 50 assertions
 ```
 
 ## Testing
@@ -98,6 +108,7 @@ ADSecurityAudit/
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\Tests\verify-stale-check.ps1
 .\Tests\verify-admin-check.ps1
+.\Tests\verify-kerberoast-check.ps1
 ```
 
 The tests stub the ActiveDirectory cmdlets, so they run on any machine and
@@ -112,6 +123,15 @@ that a check written against one English-language lab appears to get right:
 - Membership is walked one level at a time; the test fails the check if it
   calls `Get-ADGroupMember -Recursive`, which discards the membership path.
 - A membership cycle terminates, and a user beyond the cycle is still found.
+- Computer accounts and group managed service accounts are never queried for
+  Kerberoasting, asserted against the LDAP filter the check actually sends.
+- An absent `msDS-SupportedEncryptionTypes` is reported as RC4 permitted, and
+  so is a zero. Absence is not a hardening signal, and treating it as one
+  would be the quiet kind of wrong.
+- `krbtgt` holds a service principal name on every domain and is excluded by
+  RID 502, the same way RID 500 is excluded from the membership check.
+- A password that was never set reports a null age rather than zero, so the
+  check never calls it stale on the strength of a missing value.
 
 Writing these found a latent bug in `ConvertTo-AuditTimestamp`, which had been
 unreachable for two weeks because no implemented check passed a non-null

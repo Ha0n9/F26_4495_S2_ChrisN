@@ -26,7 +26,7 @@ domain, with the scan started from the dashboard itself.
 | Weak domain password policy | `AD.POLICY.WEAK_PASSWORD` | Implemented |
 | Stale enabled accounts | `AD.ACCOUNT.STALE_ENABLED` | Implemented |
 | Excessive privileged group membership | `AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP` | Implemented |
-| Kerberoasting exposure | `AD.PRIVILEGE.KERBEROASTING` | Planned |
+| Kerberoasting exposure | `AD.PRIVILEGE.KERBEROASTING` | Implemented |
 | Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Planned |
 | Risky group policy settings | `AD.POLICY.RISKY_GPO` | Planned |
 | Domain trust relationships | `AD.TRUST.RISKY_TRUST` | Planned |
