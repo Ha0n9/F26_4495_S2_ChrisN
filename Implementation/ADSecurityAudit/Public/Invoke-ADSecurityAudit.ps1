@@ -90,14 +90,12 @@ function Invoke-ADSecurityAudit {
         Get-ADDomain -Current LocalComputer -ErrorAction Stop
     }
 
-    $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $isDomainAdmin = ([Security.Principal.WindowsPrincipal]$currentUser).IsInRole(
-        [Security.Principal.SecurityIdentifier]::new(
-            [Security.Principal.WellKnownSidType]::AccountDomainAdminsSid, $domain.DomainSID))
+    $executedBy = Get-AuditExecutionContext -Domain $domain
 
     $findings  = [System.Collections.Generic.List[object]]::new()
     $completed = [System.Collections.Generic.List[string]]::new()
     $failed    = [System.Collections.Generic.List[object]]::new()
+    $partial   = [System.Collections.Generic.List[object]]::new()
 
     foreach ($id in $requested) {
         $function = $registry[$id]
@@ -108,7 +106,28 @@ function Invoke-ADSecurityAudit {
             # without affecting the others or editing the check itself.
             $extra = if ($CheckParameter.ContainsKey($id)) { $CheckParameter[$id] } else { @{} }
             $result = & $function -DomainName $domain.DNSRoot @extra -ErrorAction Stop
-            if ($result) { $findings.AddRange(@($result)) }
+
+            # A check returns findings, and may also return partial-result
+            # markers saying it ran successfully over only part of its ground.
+            # They are separated here by type name rather than by inspecting
+            # properties, so a finding can never be mistaken for a marker.
+            foreach ($item in @($result)) {
+                if ($null -eq $item) { continue }
+
+                if ($item.PSObject.TypeNames -contains 'ADSecurityAudit.PartialResult') {
+                    Write-Warning "$id returned incomplete results: $($item.reason)"
+                    $partial.Add([pscustomobject]@{
+                        checkId = $item.checkId
+                        reason  = $item.reason
+                    })
+                    continue
+                }
+
+                $findings.Add($item)
+            }
+
+            # Still completed: it ran to the end without error. Whether it saw
+            # everything is a separate question, answered by checksPartial.
             $completed.Add($id)
         }
         catch {
@@ -136,12 +155,17 @@ function Invoke-ADSecurityAudit {
                 domainControllerQueried = $domain.PDCEmulator
             }
             executedBy = [pscustomobject]@{
-                account              = $currentUser.Name
-                hadDomainAdminRights = $isDomainAdmin
+                account              = $executedBy.account
+                hadDomainAdminRights = $executedBy.hadDomainAdminRights
             }
             checksRequested = @($requested)
             checksCompleted = $completed.ToArray()
             checksFailed    = $failed.ToArray()
+            # Checks that ran without error but did not see everything. Kept
+            # separate from checksFailed because their findings are real and
+            # must still be shown, and separate from a bare checksCompleted
+            # because the domain was not fully examined.
+            checksPartial   = $partial.ToArray()
         }
         findings = $findings.ToArray()
     }
@@ -165,6 +189,9 @@ function Invoke-ADSecurityAudit {
     Write-Verbose "Wrote $($findings.Count) finding(s) to $OutputPath"
     if ($failed.Count) {
         Write-Warning "$($failed.Count) check(s) did not run. The results are incomplete."
+    }
+    if ($partial.Count) {
+        Write-Warning "$($partial.Count) check(s) examined only part of the domain. The results are incomplete."
     }
 
     if ($PassThru) { $result }

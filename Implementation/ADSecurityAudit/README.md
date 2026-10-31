@@ -90,7 +90,11 @@ ADSecurityAudit/
   Public/
     Invoke-ADSecurityAudit.ps1  Aggregator, JSON envelope, per-check parameters
   Private/
-    New-AuditFinding.ps1        Builds finding objects to the contract
+    New-AuditFinding.ps1        Builds finding objects, and partial-result
+                                markers, to the contract
+    Get-AuditExecutionContext.ps1  Which account the scan runs as. Separate
+                                because it is the only Windows-only part of
+                                the aggregator, so tests can replace it
     Checks/
       Test-WeakPasswordPolicy.ps1
       Test-StaleEnabledAccount.ps1
@@ -100,6 +104,7 @@ ADSecurityAudit/
     verify-stale-check.ps1      32 assertions
     verify-admin-check.ps1      28 assertions
     verify-kerberoast-check.ps1 50 assertions
+    verify-aggregator.ps1       25 assertions
 ```
 
 ## Testing
@@ -109,6 +114,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\Tests\verify-stale-check.ps1
 .\Tests\verify-admin-check.ps1
 .\Tests\verify-kerberoast-check.ps1
+.\Tests\verify-aggregator.ps1
 ```
 
 The tests stub the ActiveDirectory cmdlets, so they run on any machine and
@@ -161,6 +167,16 @@ finding dictionary, joined on `checkId` by the dashboard.
 try/catch in the aggregator. A check that throws is recorded under
 `checksFailed` with its message and kept out of `checksCompleted`, so the
 dashboard can say part of the domain was not examined.
+
+**Nor is a truncated one.** A check that runs to the end but stops short of
+part of its ground, such as a group hierarchy deeper than `MaxNestingDepth`,
+returns a `New-AuditPartialResult` marker alongside its findings. The
+aggregator separates markers from findings by type name and records them in
+`checksPartial`. The check stays in `checksCompleted`, because it ran without
+error, and the dashboard still treats the scan as incomplete. Putting it in
+`checksFailed` instead would throw away the real privileged accounts it did
+find; leaving it only in `checksCompleted` was the defect: a hierarchy the
+tool never finished walking read exactly like one it had.
 
 **No scoring here.** The security score is computed in the dashboard, so the
 weighting can change without re-running a scan.

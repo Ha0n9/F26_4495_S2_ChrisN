@@ -11,6 +11,13 @@ $moduleRoot =
 $script:p = 0; $script:f = 0
 function A($c, $l) { if ($c) { $script:p++; "  pass  $l" } else { $script:f++; "  FAIL  $l" } }
 
+# A check now returns findings and, when it knows it did not see everything,
+# partial-result markers alongside them. Tests have to look at the two
+# separately, because asserting on the mixed stream is how truncation stayed
+# invisible in the first place.
+function Findings { param($r) @($r) | Where-Object { $_ -and -not ($_.PSObject.TypeNames -contains 'ADSecurityAudit.PartialResult') } }
+function Partials { param($r) @($r) | Where-Object { $_ -and ($_.PSObject.TypeNames -contains 'ADSecurityAudit.PartialResult') } }
+
 $SID = 'S-1-5-21-1111111111-2222222222-3333333333'
 
 function Get-ADDomain {
@@ -99,12 +106,33 @@ A ($r.evidence.directMemberCount -eq 0)                 'counts direct members'
 
 "`nNesting disabled"
 $r2 = Test-ExcessiveAdminMembership -DomainName 'auditlab.test' -PrivilegedGroupRids @(512) -ResolveNestedGroups $false
-A (-not ($r2.affectedObjects.name -contains 'tech_a'))  'does not expand'
-A ($r2.affectedObjects.name -contains 'LabITSupport')   'still reports the nested group itself'
+$f2 = Findings $r2
+$p2 = Partials $r2
+A (-not ($f2.affectedObjects.name -contains 'tech_a'))  'does not expand'
+A ($f2.affectedObjects.name -contains 'LabITSupport')   'still reports the nested group itself'
+A (@($p2).Count -eq 1)                                  'reports the unexamined branch as a partial result'
+A ($p2[0].checkId -ceq 'AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP') 'the marker carries the check id'
+A ($p2[0].reason -match 'ResolveNestedGroups')          'the reason names the parameter to change'
+$group2 = $f2.affectedObjects | Where-Object name -eq 'LabITSupport'
+A ($group2.attributes.membersNotExpanded -eq $true)     'the group is flagged as not expanded'
 
 "`nDepth limit"
 $r3 = Test-ExcessiveAdminMembership -DomainName 'auditlab.test' -PrivilegedGroupRids @(512) -MaxNestingDepth 1
-A (-not ($r3.affectedObjects.name -contains 'tech_a'))  'stops at the limit'
+$f3 = Findings $r3
+$p3 = Partials $r3
+A (-not ($f3.affectedObjects.name -contains 'tech_a'))  'stops at the limit'
+# This is the defect these assertions exist for. Before, the branch was
+# abandoned with nothing but a verbose message, the aggregator recorded the
+# check as completed, and a hierarchy the tool never walked was presented
+# exactly like one it had walked to the end.
+A (@($p3).Count -eq 1)                                  'truncation is reported rather than silent'
+A ($p3[0].reason -match 'MaxNestingDepth')              'the reason names the parameter to raise'
+A ($p3[0].reason -match 'LabITSupport')                 'the reason names the branch that was abandoned'
+A ($f3.affectedObjects.name -contains 'LabITSupport')   'the group at the limit is still reported'
+$group3 = $f3.affectedObjects | Where-Object name -eq 'LabITSupport'
+A ($group3.attributes.membersNotExpanded -eq $true)     'and is flagged as not expanded'
+$deeper = $f3.affectedObjects | Where-Object { $_.attributes.membersNotExpanded -ne $true }
+A (@($deeper).Count -eq 0)                              'nothing beyond the limit is claimed as examined'
 
 "`nMembership cycle"
 Reset-Fixture
@@ -114,21 +142,25 @@ $script:membership["CN=group_b,OU=Staff,DC=auditlab,DC=test"] = @( (M 'group_a' 
 $threw = $false
 try { $r4 = Test-ExcessiveAdminMembership -DomainName 'auditlab.test' -PrivilegedGroupRids @(512) } catch { $threw = $true }
 A (-not $threw)                                          'terminates instead of recursing forever'
-A ($r4.affectedObjects.name -contains 'victim')          'still finds the user beyond the cycle'
+A ((Findings $r4).affectedObjects.name -contains 'victim') 'still finds the user beyond the cycle'
+# A cycle guard is not truncation. Everything reachable was reached, so
+# claiming the result is partial would cry wolf on a correct walk.
+A (@(Partials $r4).Count -eq 0)                          'a guarded cycle is not reported as partial'
 
 "`nSeveral privileged groups"
 Reset-Fixture
 $script:groups["$SID-519"] = (G 'Enterprise Admins' '519')
 $script:membership["CN=Domain Admins,DC=auditlab,DC=test"]     = @( (M 'mtran' '1105') )
 $script:membership["CN=Enterprise Admins,DC=auditlab,DC=test"] = @( (M 'ehoang' '1106') )
-$rs = @(Test-ExcessiveAdminMembership -DomainName 'auditlab.test' -PrivilegedGroupRids @(512, 519))
+$rs = @(Findings (Test-ExcessiveAdminMembership -DomainName 'auditlab.test' -PrivilegedGroupRids @(512, 519)))
 A ($rs.Count -eq 2)                                      'one finding per group'
+A (@(Partials (Test-ExcessiveAdminMembership -DomainName 'auditlab.test' -PrivilegedGroupRids @(512, 519))).Count -eq 0) 'a fully walked hierarchy is not partial'
 A ((($rs.findingId | Select-Object -Unique).Count) -eq 2) 'distinct finding ids'
 
 "`nGroup absent from this domain"
 Reset-Fixture
 $script:membership["CN=Domain Admins,DC=auditlab,DC=test"] = @( (M 'mtran' '1105') )
-$rs2 = @(Test-ExcessiveAdminMembership -DomainName 'auditlab.test' -PrivilegedGroupRids @(512, 518))
+$rs2 = @(Findings (Test-ExcessiveAdminMembership -DomainName 'auditlab.test' -PrivilegedGroupRids @(512, 518)))
 A ($rs2.Count -eq 1)                                     'a missing group is skipped, not an error'
 
 "`nJSON round trip"

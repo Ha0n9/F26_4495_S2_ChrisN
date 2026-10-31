@@ -1,7 +1,6 @@
 import { Button, InputNumber, Space, Tooltip, Typography, Upload } from 'antd';
 import type { UploadProps } from 'antd';
 import { useState } from 'react';
-import { apiAvailable } from '@/lib/api';
 
 const { Text } = Typography;
 
@@ -12,6 +11,12 @@ interface Props {
   onRunScan: (newAccountGraceDays: number) => void;
   busy: boolean;
   scanning: boolean;
+  /**
+   * Whether the local API is usable right now. Passed in rather than read
+   * from the api module, because it stops being true the moment the server
+   * rejects the token and a module constant cannot re-render for that.
+   */
+  apiAvailable: boolean;
 }
 
 /**
@@ -29,6 +34,7 @@ export function DataSourceBar({
   onRunScan,
   busy,
   scanning,
+  apiAvailable,
 }: Props) {
   // Freshly created accounts are excused for not having signed in yet. A test
   // lab seeded minutes ago needs that grace set to zero, which is why it is

@@ -60,6 +60,21 @@ export default function App() {
   const [dictionaryWarning, setDictionaryWarning] = useState<string | null>(null);
 
   /**
+   * Whether the local API is still usable.
+   *
+   * It starts as whatever the page loaded with and turns false the moment the
+   * server rejects the token, which happens on every server restart because
+   * the token is regenerated each time. Leaving the Run scan button in place
+   * after that would offer an action that cannot succeed.
+   */
+  const [apiUsable, setApiUsable] = useState(apiAvailable);
+
+  /** Records a rejected token once, wherever the rejection surfaces. */
+  const noteApiError = useCallback((caught: unknown) => {
+    if (caught instanceof ApiError && caught.status === 401) setApiUsable(false);
+  }, []);
+
+  /**
    * The two files are loaded independently rather than with Promise.all.
    * A fresh clone has no scan result, and under Promise.all that one
    * rejection also discarded the dictionary, so opening a scan file by hand
@@ -74,6 +89,9 @@ export default function App() {
       loadScanResult(),
       loadDictionary(),
     ]);
+
+    if (dictionaryOutcome.status === 'rejected') noteApiError(dictionaryOutcome.reason);
+    if (scanOutcome.status === 'rejected') noteApiError(scanOutcome.reason);
 
     if (dictionaryOutcome.status === 'fulfilled') {
       setDictionary(dictionaryOutcome.value);
@@ -91,7 +109,7 @@ export default function App() {
     }
 
     setLoading(false);
-  }, []);
+  }, [noteApiError]);
 
   useEffect(() => {
     void reload();
@@ -108,20 +126,40 @@ export default function App() {
     setNotice(null);
     try {
       const response = await api.runScan({ newAccountGraceDays });
-      setScan(response.result);
+
+      // Validated like any other source. The API is local, but it answers
+      // with a file it read from disk, and "local" is not the same as
+      // "known good". An unchecked result reached the renderer and crashed
+      // it on the first missing field.
+      const result = parseScanResult(response.result, 'the scan the local API just ran');
+      setScan(result);
+
       const seconds = (response.durationMs / 1000).toFixed(1);
-      const failed = response.result.scan.checksFailed.length;
-      setNotice(
-        failed > 0
-          ? `Scan finished in ${seconds} seconds. ${failed} check${failed > 1 ? 's' : ''} could not run, so the results are incomplete.`
-          : `Scan finished in ${seconds} seconds. Every requested check completed.`,
+      const failed = result.scan.checksFailed.length;
+      const truncated = result.scan.checksPartial.length;
+
+      const parts = [`Scan finished in ${seconds} seconds.`];
+      if (failed > 0) {
+        parts.push(`${failed} check${failed > 1 ? 's' : ''} could not run.`);
+      }
+      if (truncated > 0) {
+        parts.push(
+          `${truncated} check${truncated > 1 ? 's' : ''} examined only part of the domain.`,
+        );
+      }
+      parts.push(
+        failed > 0 || truncated > 0
+          ? 'The results are incomplete. See the Coverage tab.'
+          : 'Every requested check completed.',
       );
+      setNotice(parts.join(' '));
     } catch (caught) {
+      noteApiError(caught);
       setError(messageFor(caught));
     } finally {
       setScanning(false);
     }
-  }, []);
+  }, [noteApiError]);
 
   const openScanFile = useCallback(async (file: File) => {
     try {
@@ -166,6 +204,7 @@ export default function App() {
   );
 
   const failedCount = scan?.scan.checksFailed.length ?? 0;
+  const truncatedCount = scan?.scan.checksPartial?.length ?? 0;
   const ready = Boolean(scan);
 
   return (
@@ -179,7 +218,7 @@ export default function App() {
             <Text type="secondary">
               {scan
                 ? `Results for ${scan.scan.domain.dnsName}, scanned ${formatTimestamp(scan.scan.completedAt)}`
-                : apiAvailable
+                : apiUsable
                   ? 'Connected to the local API. Run a scan to begin.'
                   : 'Reading the most recent scan from disk'}
             </Text>
@@ -192,6 +231,7 @@ export default function App() {
             onRunScan={(grace) => void runScan(grace)}
             busy={loading}
             scanning={scanning}
+            apiAvailable={apiUsable}
           />
 
           {notice && (
@@ -244,6 +284,15 @@ export default function App() {
                   showIcon
                   message={`${failedCount} check${failedCount > 1 ? 's' : ''} could not run`}
                   description="Part of this domain was not examined, so the results below are incomplete. The Coverage tab lists what was missed and why."
+                />
+              )}
+
+              {truncatedCount > 0 && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={`${truncatedCount} check${truncatedCount > 1 ? 's' : ''} examined only part of the domain`}
+                  description="These checks ran to the end without error but stopped short of some of the ground they cover, so what they found is real and what lies beyond is unknown. The Coverage tab names each one and the setting that would widen it."
                 />
               )}
 

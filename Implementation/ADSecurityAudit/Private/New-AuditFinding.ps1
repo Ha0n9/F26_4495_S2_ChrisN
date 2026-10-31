@@ -71,6 +71,55 @@ function New-AuditFinding {
 }
 
 
+function New-AuditPartialResult {
+    <#
+    .SYNOPSIS
+        Marks a check as having run successfully over only part of its ground.
+
+    .DESCRIPTION
+        There are three things a check can do, not two.
+
+        It can complete, which the aggregator records in checksCompleted. It
+        can throw, which the aggregator records in checksFailed, and the
+        dashboard then refuses to call the domain clean. Between them sits a
+        check that ran without error, returned real findings, and knows it did
+        not see everything: a group hierarchy deeper than the traversal limit
+        is the case this was written for.
+
+        Neither existing state tells the truth about that. Recording it as
+        completed presents an unexamined branch as a clean one, which is the
+        failure this project argues against everywhere. Throwing it into
+        checksFailed would discard the findings the check did produce, so a
+        tool that found four real domain administrators would report none.
+
+        A check therefore returns this object alongside its findings. The
+        aggregator separates the two by type name and records them in
+        checksPartial, and the dashboard treats a partial check as evidence
+        that the scan is incomplete, exactly as it treats a failed one.
+
+    .PARAMETER CheckId
+        The check that was truncated. Same join key as a finding.
+
+    .PARAMETER Reason
+        What was not examined and why, in terms an administrator can act on.
+        "Nesting deeper than 5 levels" tells somebody which parameter to
+        raise; "truncated" does not.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] [string] $CheckId,
+        [Parameter(Mandatory)] [string] $Reason
+    )
+
+    [pscustomobject]@{
+        PSTypeName = 'ADSecurityAudit.PartialResult'
+        checkId    = $CheckId
+        reason     = $Reason
+    }
+}
+
+
 function New-AffectedObject {
     <#
     .SYNOPSIS

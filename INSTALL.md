@@ -383,6 +383,29 @@ The file exists but is not valid JSON. This is a different problem from the one
 above and the dashboard words them differently on purpose. Check that the file
 was written by the module and not truncated part way through a scan.
 
+**A check is marked "Partial"**
+
+It ran to the end without error but stopped short of part of the ground it
+covers. The usual cause is a group hierarchy nested deeper than the
+traversal limit. What it reported is real; what lies beyond the limit was
+never looked at. The Coverage tab names the branch and the setting that
+would include it, for example:
+
+```powershell
+Invoke-ADSecurityAudit -CheckParameter @{
+    'AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP' = @{ MaxNestingDepth = 10 }
+}
+```
+
+The security score stays marked as a partial view while any check is in this
+state, even when every requested check completed.
+
+**The Run scan button disappeared after a refresh**
+
+If the server is still running, open the link it printed again. The token is
+regenerated on every restart, and the dashboard discards one the server has
+stopped accepting rather than offering an action that cannot succeed.
+
 **Checks appear under "could not run"**
 
 Expected when the auditing account lacks read access to what a check needs.

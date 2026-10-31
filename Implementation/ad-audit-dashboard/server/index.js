@@ -170,26 +170,59 @@ app.post('/api/scan', authorise, async (req, res) => {
   child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
   child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
 
-  // A scan that hangs must not hold the server open forever.
-  const timeout = setTimeout(() => {
-    child.kill();
-  }, Number(process.env.AUDIT_SCAN_TIMEOUT_MS ?? 180000));
+  /**
+   * One request, one response, one release of the lock.
+   *
+   * A spawn that fails emits 'error' and then also emits 'close', with a
+   * negative exit code. Two handlers each calling res therefore sent two
+   * responses for one request: the second threw ERR_HTTP_HEADERS_SENT inside
+   * an event handler, where there is no request context to catch it, and the
+   * lock was left in whatever state the last handler set. Everything that
+   * ends this request goes through here instead.
+   */
+  const timeoutMs = Number(process.env.AUDIT_SCAN_TIMEOUT_MS ?? 180000);
 
-  child.on('error', (error) => {
+  let settled = false;
+  let timedOut = false;
+  let timeout;
+
+  const settle = (status, body) => {
+    if (settled) return;
+    settled = true;
     clearTimeout(timeout);
     scanInFlight = false;
-    res.status(500).json({
+    res.status(status).json(body);
+  };
+
+  // A scan that hangs must not hold the server open forever. The flag is set
+  // before the kill, because killing the child produces an ordinary 'close'
+  // that is otherwise indistinguishable from the scan failing on its own.
+  timeout = setTimeout(() => {
+    timedOut = true;
+    child.kill();
+  }, timeoutMs);
+
+  child.on('error', (error) => {
+    settle(500, {
       error: `Could not start PowerShell (${shell}): ${error.message}`,
       hint: 'Set AUDIT_PWSH to the full path of powershell.exe or pwsh.exe if it is not on PATH.',
     });
   });
 
   child.on('close', async (code) => {
-    clearTimeout(timeout);
-    scanInFlight = false;
+    // Already answered by the error handler above. Nothing useful is left to
+    // say, and saying it would be the bug this guard exists for.
+    if (settled) return;
+
+    if (timedOut) {
+      return settle(504, {
+        error: `The scan was still running after ${timeoutMs / 1000} seconds and was stopped.`,
+        detail: stderr.trim() || stdout.trim() || 'No output was captured before the scan was stopped.',
+      });
+    }
 
     if (code !== 0) {
-      return res.status(500).json({
+      return settle(500, {
         error: 'The scan failed.',
         exitCode: code,
         // stderr carries the PowerShell error, which is the useful part.
@@ -199,7 +232,7 @@ app.post('/api/scan', authorise, async (req, res) => {
 
     try {
       const result = await readJsonFile(SCAN_PATH);
-      res.json({
+      settle(200, {
         result,
         durationMs: Date.now() - startedAt,
         // Warnings about checks that did not run arrive here. They are not
@@ -208,7 +241,7 @@ app.post('/api/scan', authorise, async (req, res) => {
         warnings: stderr.trim() ? stderr.trim().split(/\r?\n/) : [],
       });
     } catch (error) {
-      res.status(500).json({
+      settle(500, {
         error: `The scan reported success but its output could not be read: ${error.message}`,
       });
     }

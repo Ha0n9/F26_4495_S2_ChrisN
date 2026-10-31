@@ -1,56 +1,29 @@
-import { api, apiAvailable } from './api';
+import { api, tokenPresent } from './api';
+import { DataError, MissingFileError } from './errors';
+import { validateDictionary, validateScanResult } from './validate';
 import type { FindingDictionary } from '@/types/dictionary';
 import type { ScanResult } from '@/types/scan';
+
+export { DataError, MissingFileError };
 
 export const SCAN_PATH = 'data/scan-result.json';
 export const DICTIONARY_PATH = 'data/finding-dictionary.json';
 
-/** Major version this build understands. */
-const SUPPORTED_MAJOR = 1;
-
-export class DataError extends Error {}
-
-function majorOf(schemaVersion: string): number {
-  const major = Number.parseInt(String(schemaVersion).split('.')[0] ?? '', 10);
-  return Number.isNaN(major) ? -1 : major;
-}
-
-function assertSupported(schemaVersion: string, what: string): void {
-  const major = majorOf(schemaVersion);
-  if (major === -1) {
-    throw new DataError(`The ${what} has no readable schemaVersion.`);
-  }
-  if (major > SUPPORTED_MAJOR) {
-    throw new DataError(
-      `The ${what} uses schema version ${schemaVersion}, which this dashboard does not understand. Update the dashboard rather than reading it with the wrong reader.`,
-    );
-  }
-}
-
+/**
+ * Every scan result entering the dashboard passes through here, whatever
+ * route it arrived by: the static file, the local API, or a file the reader
+ * opened by hand. Validating at one boundary is the only way to be sure a
+ * malformed result cannot reach the renderer, and the API is not a trusted
+ * source simply because it is local. It reads a file from disk that anything
+ * on the machine could have written.
+ */
 export function parseScanResult(raw: unknown, origin: string): ScanResult {
-  const candidate = raw as Partial<ScanResult>;
-  if (!candidate || typeof candidate !== 'object' || !candidate.scan || !Array.isArray(candidate.findings)) {
-    throw new DataError(`${origin} does not look like a scan result. It needs a scan section and a findings array.`);
-  }
-  assertSupported(candidate.schemaVersion ?? '', 'scan result');
-  return candidate as ScanResult;
+  return validateScanResult(raw, origin);
 }
 
 export function parseDictionary(raw: unknown, origin: string): FindingDictionary {
-  const candidate = raw as Partial<FindingDictionary>;
-  if (!candidate || typeof candidate !== 'object' || !candidate.entries) {
-    throw new DataError(`${origin} does not look like a finding dictionary. It needs an entries object.`);
-  }
-  assertSupported(candidate.schemaVersion ?? '', 'finding dictionary');
-  return candidate as FindingDictionary;
+  return validateDictionary(raw, origin);
 }
-
-/**
- * Thrown when a static file is simply not there yet, as opposed to being
- * present and unreadable. The caller can word those two cases differently,
- * because they ask the user to do different things.
- */
-export class MissingFileError extends DataError {}
 
 async function fetchJson(path: string): Promise<unknown> {
   const response = await fetch(path, { cache: 'no-store' });
@@ -83,15 +56,20 @@ async function fetchJson(path: string): Promise<unknown> {
 }
 
 /**
- * Load through the local API when the page has a token, and fall back to the
+ * Load through the local API when the page holds a token, and fall back to the
  * static files otherwise.
  *
  * The fallback is not dead weight. A scan result can be reviewed on a machine
  * that has no PowerShell and no domain, which is the normal case for anyone
  * reading somebody else's audit, and that reader should not need the server.
+ *
+ * The token is checked at call time rather than at module load, because the
+ * server rejecting it is a normal event: it issues a new one every restart.
+ * A module constant captured at load would keep calling an API this page can
+ * no longer reach.
  */
 export async function loadScanResult(): Promise<ScanResult> {
-  if (apiAvailable) {
+  if (tokenPresent()) {
     return parseScanResult(await api.latestScan(), 'the local API');
   }
   try {
@@ -107,7 +85,7 @@ export async function loadScanResult(): Promise<ScanResult> {
 }
 
 export async function loadDictionary(): Promise<FindingDictionary> {
-  if (apiAvailable) {
+  if (tokenPresent()) {
     return parseDictionary(await api.dictionary(), 'the local API');
   }
   try {
@@ -125,7 +103,7 @@ export async function loadDictionary(): Promise<FindingDictionary> {
 export async function readJsonFile(file: File): Promise<unknown> {
   const text = await file.text();
   try {
-    return JSON.parse(text);
+    return JSON.parse(text.replace(/^﻿/, ''));
   } catch {
     throw new DataError(`${file.name} is not valid JSON.`);
   }

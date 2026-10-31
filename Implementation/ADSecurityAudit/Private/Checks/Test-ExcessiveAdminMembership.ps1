@@ -53,6 +53,12 @@ function Test-ExcessiveAdminMembership {
     .PARAMETER MaxNestingDepth
         Depth limit, and the second line of defence against a cycle.
 
+        Reaching it does not quietly end the branch. The group sitting at the
+        limit is still reported, flagged with membersNotExpanded, and the
+        check returns a partial-result marker naming every branch it
+        abandoned. A deep hierarchy that was only half walked must not reach
+        the reader looking like one that was walked to the end.
+
     .PARAMETER ExcludedRids
         Relative identifiers never reported. Defaults to the built-in
         Administrator.
@@ -77,6 +83,19 @@ function Test-ExcessiveAdminMembership {
 
     $findings = [System.Collections.Generic.List[object]]::new()
     $index    = 0
+
+    # Every branch abandoned at the depth limit, recorded rather than only
+    # written to the verbose stream. A verbose message is invisible unless
+    # somebody asked for it, and nothing downstream could tell that this walk
+    # stopped early, so a hierarchy deeper than the limit was presented as if
+    # it had been fully examined.
+    $truncations = [System.Collections.Generic.List[string]]::new()
+
+    # Groups left unexpanded because the caller turned nesting off. A
+    # deliberate choice, but it has the same consequence as hitting the depth
+    # limit: accounts below those groups were never looked at, and a result
+    # that did not say so would be describing ground it never covered.
+    $unexpanded = [System.Collections.Generic.List[string]]::new()
 
     foreach ($rid in $PrivilegedGroupRids) {
         $groupSid = '{0}-{1}' -f $domainSid, $rid
@@ -128,12 +147,28 @@ function Test-ExcessiveAdminMembership {
                             Path          = $path
                             IsDirect      = ($current.Depth -eq 0)
                             IsGroup       = $true
+                            Truncated     = $true
                         })
+                        $unexpanded.Add(($path -join ' -> '))
                         continue
                     }
 
                     if ($current.Depth + 1 -ge $MaxNestingDepth) {
                         Write-Verbose "Depth limit reached at $($child.name), not expanding further."
+
+                        # The group itself is still reported, because a group
+                        # inside a privileged group is worth knowing about
+                        # even when its members were never enumerated. What
+                        # cannot be claimed is that the accounts below it
+                        # were examined.
+                        $members.Add([pscustomobject]@{
+                            Member    = $child
+                            Path      = $path
+                            IsDirect  = ($current.Depth -eq 0)
+                            IsGroup   = $true
+                            Truncated = $true
+                        })
+                        $truncations.Add(($path -join ' -> '))
                         continue
                     }
 
@@ -176,6 +211,7 @@ function Test-ExcessiveAdminMembership {
                     membershipPath  = ($entry.Path -join ' -> ')
                     isDirectMember  = [bool] $entry.IsDirect
                     nestingDepth    = $entry.Path.Count - 2
+                    membersNotExpanded = [bool] $entry.Truncated
                 }
         }
 
@@ -213,6 +249,22 @@ function Test-ExcessiveAdminMembership {
             }))
     }
 
+    if ($truncations.Count -gt 0) {
+        $findings.Add((New-AuditPartialResult `
+            -CheckId 'AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP' `
+            -Reason ('Nested membership was not followed beyond {0} levels, so any accounts below {1} group(s) were not examined: {2}. Raise MaxNestingDepth to include them.' -f
+                $MaxNestingDepth, $truncations.Count, ($truncations -join '; '))))
+    }
+
+    if ($unexpanded.Count -gt 0) {
+        $findings.Add((New-AuditPartialResult `
+            -CheckId 'AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP' `
+            -Reason ('Nested group expansion was turned off, so accounts inside {0} group(s) were not examined: {1}. Run with ResolveNestedGroups set to true to include them.' -f
+                $unexpanded.Count, ($unexpanded -join '; '))))
+    }
+
+    # A truncated walk with no findings is still not a clean result, so the
+    # marker above has to leave by the same door as a finding would.
     if ($findings.Count -eq 0) { return }
     return $findings.ToArray()
 }

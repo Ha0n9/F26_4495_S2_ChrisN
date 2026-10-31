@@ -6,8 +6,18 @@ const { Paragraph, Text } = Typography;
 
 const STATUS_COLOR: Record<CoverageRow['status'], string> = {
   Completed: 'green',
+  // Orange rather than green, because a reader scanning this column for
+  // problems must not pass over a check that stopped short of its ground.
+  Partial: 'orange',
   Failed: 'red',
   'Not run': 'default',
+};
+
+const STATUS_LABEL: Record<CoverageRow['status'], string> = {
+  Completed: 'Completed',
+  Partial: 'Partial',
+  Failed: 'Failed',
+  'Not run': 'Not run',
 };
 
 export function CoverageTab({ rows }: { rows: CoverageRow[] }) {
@@ -30,7 +40,9 @@ export function CoverageTab({ rows }: { rows: CoverageRow[] }) {
       dataIndex: 'status',
       key: 'status',
       width: 130,
-      render: (value: CoverageRow['status']) => <Tag color={STATUS_COLOR[value]}>{value}</Tag>,
+      render: (value: CoverageRow['status']) => (
+        <Tag color={STATUS_COLOR[value]}>{STATUS_LABEL[value]}</Tag>
+      ),
     },
     {
       title: 'Findings',
@@ -44,25 +56,31 @@ export function CoverageTab({ rows }: { rows: CoverageRow[] }) {
       title: 'Detail',
       dataIndex: 'errorMessage',
       key: 'errorMessage',
-      render: (value: string | undefined, row) =>
-      value ? (
-        <Text type="danger">{value}</Text>
-      ) : (
+      render: (value: string | undefined, row) => {
+        if (value) return <Text type="danger">{value}</Text>;
+        // The reason a check stopped short is the actionable part: it names
+        // the branch that was skipped and the parameter that would include
+        // it, so it is shown rather than summarised.
+        if (row.partialReason) return <Text type="warning">{row.partialReason}</Text>;
         // This column is about whether the check ran, not about what it
         // found. Saying "no issues" here contradicts the Findings column
         // beside it whenever a completed check reported something.
-        <Text type="secondary">
-          {row.status === 'Completed' ? 'Ran without error' : 'Not attempted'}
-        </Text>
-      ),
+        return (
+          <Text type="secondary">
+            {row.status === 'Completed' ? 'Ran without error' : 'Not attempted'}
+          </Text>
+        );
+      },
     },
   ];
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
       <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        A check that failed is not the same as a check that found nothing. Failed checks left part of this domain
-        unexamined.
+        A check that failed is not the same as a check that found nothing, and a check marked Partial is neither. It
+        ran to the end without error but stopped short of some of the ground it covers, so what it reported is real
+        and what it did not reach is unknown. The Detail column says what was skipped and which setting would include
+        it.
       </Paragraph>
       <div className="scroll-x">
         <Table<CoverageRow>

@@ -20,7 +20,23 @@ The dashboard loads both and joins them on `checkId`.
 
 ## Fields the dashboard depends on
 
-From `scan.*`: domain name, timestamps, module version, and `checksFailed`. A check that failed is not the same as a check that found nothing, and the dashboard shows the difference.
+From `scan.*`: domain name, timestamps, module version, and the three coverage lists described below. Every scan result is validated against this contract before it is rendered, whichever route it arrived by, because a result that is merely shaped like a scan crashes the renderer on its first missing field.
+
+## Coverage: three outcomes, not two
+
+A check ends in one of three states, and the envelope records each separately because collapsing any pair of them tells the reader something untrue.
+
+| List | Meaning |
+|---|---|
+| `checksCompleted` | The check ran to the end without error. |
+| `checksFailed` | The check threw. Its entries carry `checkId` and `errorMessage`. |
+| `checksPartial` | The check ran to the end without error but did not examine all of its ground. Its entries carry `checkId` and `reason`. |
+
+`checksPartial` is the one that is easy to get wrong. A check that abandons a branch of a group hierarchy at its depth limit has not failed: it returned real findings that must still be shown. Nor has it covered the domain: accounts below that branch were never looked at. Recording it only in `checksCompleted` presented unexamined ground as clean, which is the failure this project argues against everywhere else. Recording it in `checksFailed` instead would discard findings the check did produce.
+
+So a truncated check appears in **both** `checksCompleted` and `checksPartial`. The first says it ran; the second says how far it got. The dashboard shows it as `Partial` in the coverage table, raises a banner, and marks the security score as a partial view even when every requested check completed.
+
+`checksPartial` was added after the first scans were written, so a reader must treat its absence as an empty list rather than as invalid. Every committed baseline predates it.
 
 From each finding: `checkId`, `severity`, `affectedObjectCount`, `affectedObjects`, `evidence`.
 

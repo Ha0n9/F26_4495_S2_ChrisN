@@ -51,6 +51,24 @@ export interface FailedCheck {
   errorMessage: string;
 }
 
+/**
+ * A check that ran to the end without error but did not see everything.
+ *
+ * The third state, and the reason it exists: a check that abandons a branch
+ * of a group hierarchy at its depth limit has neither failed nor covered its
+ * ground. Recording it as completed presented unexamined accounts as a clean
+ * result; recording it as failed would have discarded the real findings it
+ * did produce. Both are dishonest in different directions.
+ *
+ * Absent from every scan written before this existed, so readers must treat
+ * a missing value as an empty list rather than as invalid.
+ */
+export interface PartialCheck {
+  checkId: string;
+  /** What was not examined, and which parameter would widen it. */
+  reason: string;
+}
+
 export interface ScanMeta {
   scanId: string;
   startedAt: string;
@@ -62,6 +80,7 @@ export interface ScanMeta {
   checksRequested: string[];
   checksCompleted: string[];
   checksFailed: FailedCheck[];
+  checksPartial: PartialCheck[];
 }
 
 export interface ScanResult {

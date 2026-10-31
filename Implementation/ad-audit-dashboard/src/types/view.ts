@@ -17,8 +17,10 @@ export interface CoverageRow {
   key: string;
   checkId: string;
   name: string;
-  status: 'Completed' | 'Failed' | 'Not run';
+  status: 'Completed' | 'Partial' | 'Failed' | 'Not run';
   errorMessage?: string;
+  /** Set when the check ran but did not examine everything it covers. */
+  partialReason?: string;
   /** Null when the check did not complete, so the count is unknown. */
   findingCount: number | null;
 }

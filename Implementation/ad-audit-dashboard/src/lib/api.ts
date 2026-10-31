@@ -26,10 +26,59 @@ export class ApiError extends Error {
   }
 }
 
+const STORAGE_KEY = 'adAudit.token';
+
+/**
+ * sessionStorage rather than localStorage.
+ *
+ * The token is only valid for the life of one server process, so storage that
+ * outlives the tab would keep handing back a token that stopped working the
+ * moment somebody restarted the server. sessionStorage is scoped to this tab
+ * and cleared when it closes, which is as close as the browser gets to the
+ * token's real lifetime.
+ *
+ * Every access is wrapped: storage throws rather than returning null in a
+ * private window, and under some site-data settings it is absent entirely.
+ * The page has to work either way, falling back to the in-memory token for
+ * this page view only.
+ */
+function readStored(): string | null {
+  try {
+    return window.sessionStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(value: string): void {
+  try {
+    window.sessionStorage.setItem(STORAGE_KEY, value);
+  } catch {
+    // Not fatal. The token stays in memory for this page view.
+  }
+}
+
+function removeStored(): void {
+  try {
+    window.sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Nothing to do.
+  }
+}
+
+/**
+ * A token in the URL always wins.
+ *
+ * Restarting the server prints a new link, and somebody who opens that link
+ * in a tab holding an older token expects the new one to take effect. Reading
+ * storage first would silently keep using the dead token and report the
+ * server as unreachable.
+ */
 function readToken(): string | null {
   try {
     const fromUrl = new URLSearchParams(window.location.search).get('token');
     if (fromUrl) {
+      writeStored(fromUrl);
       // Take it out of the address bar so it is not left in the browser
       // history or copied by accident when somebody shares the URL.
       const clean = new URL(window.location.href);
@@ -38,15 +87,41 @@ function readToken(): string | null {
       return fromUrl;
     }
   } catch {
-    // A malformed URL is not worth failing over; the caller handles a null.
+    // A malformed URL is not worth failing over; fall through to storage.
   }
-  return null;
+  return readStored();
 }
 
-const token = readToken();
+let token = readToken();
 
-/** True when the page was opened with a token, so the API is usable. */
+/**
+ * True when this page view has a token, so the API is worth calling.
+ *
+ * It is a snapshot taken at load. Once the server rejects the token, the
+ * token is discarded and this no longer reflects reality, so the component
+ * tree tracks that in state rather than re-reading this value. `tokenPresent`
+ * exposes the live answer for anything that needs it.
+ */
 export const apiAvailable = token !== null;
+
+export function tokenPresent(): boolean {
+  return token !== null;
+}
+
+/**
+ * Forgets the token, here and in storage.
+ *
+ * Called when the server rejects it, which happens on every server restart,
+ * because the token is regenerated each time. Leaving the dead token in
+ * storage would make a refresh look like it still had access and fail again.
+ */
+export function clearToken(): void {
+  token = null;
+  removeStored();
+}
+
+const RESTART_HINT =
+  'The server issues a new token every time it starts. Open the link printed in its console again.';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!token) {
@@ -85,6 +160,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Not JSON. Keep the status message.
     }
+
+    // A rejected token is almost always a restarted server rather than an
+    // attack, and the recovery is specific enough to say outright. The token
+    // is dropped here so a refresh shows the honest "no access" state rather
+    // than failing the same way again.
+    if (response.status === 401) {
+      clearToken();
+      throw new ApiError(
+        'The local API no longer accepts this page’s access token.',
+        401,
+        detail ?? RESTART_HINT,
+      );
+    }
+
     throw new ApiError(message, response.status, detail);
   }
 
