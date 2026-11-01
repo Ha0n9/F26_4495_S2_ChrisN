@@ -38,7 +38,11 @@ So a truncated check appears in **both** `checksCompleted` and `checksPartial`. 
 
 `checksPartial` was added after the first scans were written, so a reader must treat its absence as an empty list rather than as invalid. Every committed baseline predates it.
 
-From each finding: `checkId`, `severity`, `affectedObjectCount`, `affectedObjects`, `evidence`.
+From each finding: `checkId`, `severity`, `affectedObjects`, `evidence`.
+
+`affectedObjectCount` is a convenience field restating the length of `affectedObjects`. When the two disagree the array wins: the dashboard displays `affectedObjects.length`, because the array is the evidence and the count is a summary of it, and a count nothing in the file supports must not reach the reader. The file on disk is never rewritten. Note that the Raw JSON tab shows the validated object, so a corrected count appears there too.
+
+`evidence.summary`, when present, must be a string. It is the one evidence field rendered as text in its own right; every other value passes through a renderer that copes with an object by stringifying it, so the rest of the bag stays open.
 
 `affectedObjects[].attributes` is an open object. The dictionary entry's `keyAttributes` lists which of them to show as table columns. Everything else appears only in the expanded technical detail.
 

@@ -107,6 +107,61 @@ describe('validateScanResult', () => {
     expect(result.findings[0].affectedObjectCount).toBe(1);
   });
 
+  it.each([
+    ['an object', { summary: { bad: true } }, /findings\[0\]\.evidence\.summary is an object/],
+    ['an array', { summary: ['a', 'b'] }, /findings\[0\]\.evidence\.summary is an array/],
+    ['a number', { summary: 12 }, /findings\[0\]\.evidence\.summary is a number/],
+  ])('rejects an evidence summary that is %s', (_label, evidence, expected) => {
+    const scan = validScan();
+    (scan.findings as any[])[0].evidence = evidence;
+    expect(() => validateScanResult(scan, 'broken.json')).toThrow(expected);
+  });
+
+  it('accepts evidence with no summary, and other evidence values of any type', () => {
+    const scan = validScan();
+    // Everything except summary goes through AttributeValue, which renders
+    // an object as JSON, so the bag stays open on purpose.
+    (scan.findings as any[])[0].evidence = { failedControls: ['a'], parametersUsed: { depth: 5 }, count: 3 };
+    const result = validateScanResult(scan, 'good.json');
+    expect(result.findings[0].evidence?.summary).toBeUndefined();
+  });
+
+  it('accepts a null summary, which the interface already falls back for', () => {
+    const scan = validScan();
+    (scan.findings as any[])[0].evidence = { summary: null };
+    expect(() => validateScanResult(scan, 'good.json')).not.toThrow();
+  });
+
+  it.each([
+    ['too high', 9999],
+    ['too low', 0],
+    ['negative', -4],
+  ])('corrects an affectedObjectCount that is %s', (_label, declared) => {
+    const scan = validScan();
+    (scan.findings as any[])[0].affectedObjectCount = declared;
+    const result = validateScanResult(scan, 'good.json');
+
+    // The array is the evidence; the count is a convenience field restating
+    // it. A number nothing in the file supports must not reach the summary.
+    expect(result.findings[0].affectedObjectCount).toBe(1);
+    expect(result.findings[0].affectedObjects).toHaveLength(1);
+  });
+
+  it('does not mutate the object it was given', () => {
+    const scan = validScan();
+    (scan.findings as any[])[0].affectedObjectCount = 9999;
+    validateScanResult(scan, 'good.json');
+    // Normalisation is for display. The parsed input, and therefore the file
+    // it came from, is left exactly as the module wrote it.
+    expect((scan.findings as any[])[0].affectedObjectCount).toBe(9999);
+  });
+
+  it('still rejects a count of the wrong type', () => {
+    const scan = validScan();
+    (scan.findings as any[])[0].affectedObjectCount = 'many';
+    expect(() => validateScanResult(scan, 'broken.json')).toThrow(/affectedObjectCount is a string/);
+  });
+
   it('derives affectedObjectCount when it is absent', () => {
     const scan = validScan();
     delete (scan.findings as any[])[0].affectedObjectCount;
@@ -138,18 +193,102 @@ describe('validateScanResult', () => {
 });
 
 describe('validateDictionary', () => {
+  const entry = (fields: Record<string, unknown>) => ({
+    schemaVersion: '1.0',
+    language: 'en',
+    entries: { 'AD.POLICY.WEAK_PASSWORD': fields },
+  });
+
   it('accepts the committed dictionary', () => {
     const file = path.join(projectRoot, 'public', 'data', 'finding-dictionary.json');
     const dictionary = validateDictionary(readJson(file), 'finding-dictionary.json');
     expect(Object.keys(dictionary.entries).length).toBeGreaterThan(0);
   });
 
-  it('rejects an entry whose list fields are not lists', () => {
-    const broken = {
-      schemaVersion: '1.0',
-      entries: { 'AD.POLICY.WEAK_PASSWORD': { title: 'x', whatToDo: 'do something' } },
-    };
-    expect(() => validateDictionary(broken, 'broken.json')).toThrow(/whatToDo is a string/);
+  it('accepts a fully populated entry', () => {
+    const dictionary = validateDictionary(
+      entry({
+        technicalName: 'Weak domain password policy',
+        title: 'The domain password rules are easy to defeat',
+        category: 'Authentication policy',
+        defaultSeverity: 'Critical',
+        whyItMatters: 'Short passwords are guessed quickly.',
+        whatToDo: ['Raise the minimum length.', 'Require complexity.'],
+        objectColumnLabel: 'Domain',
+        keyAttributes: ['minPasswordLength'],
+        references: [{ label: 'Microsoft', url: 'https://example.invalid/docs' }],
+      }),
+      'good.json',
+    );
+    expect(Object.keys(dictionary.entries)).toHaveLength(1);
+  });
+
+  it('accepts an entry with nothing but a title', () => {
+    // The interface falls back for every other field, so requiring them
+    // would reject content it renders perfectly well.
+    expect(() => validateDictionary(entry({ title: 'x' }), 'thin.json')).not.toThrow();
+  });
+
+  it('accepts an entry with no fields at all', () => {
+    expect(() => validateDictionary(entry({}), 'empty.json')).not.toThrow();
+  });
+
+  it.each([
+    ['title', { title: 42 }, /title is a number/],
+    ['technicalName', { technicalName: [] }, /technicalName is an array/],
+    ['category', { category: {} }, /category is an object/],
+    ['whyItMatters', { whyItMatters: 7 }, /whyItMatters is a number/],
+    ['objectColumnLabel', { objectColumnLabel: null }, /objectColumnLabel is null/],
+    ['defaultSeverity', { defaultSeverity: 'Catastrophic' }, /not one of Critical, High/],
+    ['whatToDo as a whole', { whatToDo: 'do something' }, /whatToDo is a string/],
+    ['keyAttributes as a whole', { keyAttributes: 'name' }, /keyAttributes is a string/],
+    ['references as a whole', { references: 'see docs' }, /references is a string/],
+  ])('rejects a malformed %s', (_label, fields, expected) => {
+    expect(() => validateDictionary(entry(fields), 'broken.json')).toThrow(expected);
+  });
+
+  // Element types, not just container types. Checking that whatToDo is an
+  // array let [{bad:true}] through to a React child, which is the defect
+  // these cases exist for.
+  it.each([
+    ['an object in whatToDo', { whatToDo: [{ bad: true }] }, /whatToDo\[0\] is an object/],
+    ['a number in whatToDo', { whatToDo: ['ok', 3] }, /whatToDo\[1\] is a number/],
+    ['a null in whatToDo', { whatToDo: [null] }, /whatToDo\[0\] is null/],
+    ['an object in keyAttributes', { keyAttributes: [{ bad: true }] }, /keyAttributes\[0\] is an object/],
+  ])('rejects %s', (_label, fields, expected) => {
+    expect(() => validateDictionary(entry(fields), 'broken.json')).toThrow(expected);
+  });
+
+  it.each([
+    ['a reference that is a string', { references: ['https://example.invalid'] }, /references\[0\] is a string/],
+    ['a reference label that is an object', { references: [{ label: { bad: true }, url: 'u' }] }, /references\[0\]\.label is an object/],
+    ['a reference with no label', { references: [{ url: 'u' }] }, /references\[0\]\.label is missing/],
+    ['a reference with no url', { references: [{ label: 'l' }] }, /references\[0\]\.url is missing/],
+    ['a reference url that is a number', { references: [{ label: 'l', url: 5 }] }, /references\[0\]\.url is a number/],
+  ])('rejects %s', (_label, fields, expected) => {
+    expect(() => validateDictionary(entry(fields), 'broken.json')).toThrow(expected);
+  });
+
+  it('names the entry the problem is in', () => {
+    expect(() => validateDictionary(entry({ whatToDo: [{ bad: true }] }), 'broken.json')).toThrow(
+      /broken\.json is not a usable finding dictionary: entries\.AD\.POLICY\.WEAK_PASSWORD\.whatToDo\[0\]/,
+    );
+  });
+
+  it.each([
+    ['the file itself', 'nope', /the file is a string/],
+    ['entries', { schemaVersion: '1.0', entries: [] }, /entries is an array/],
+    ['an entry', { schemaVersion: '1.0', entries: { A: 'nope' } }, /entries\.A is a string/],
+    ['language', { schemaVersion: '1.0', entries: {}, language: 3 }, /language is a number/],
+    ['severityScale', { schemaVersion: '1.0', entries: {}, severityScale: ['Nope'] }, /severityScale\[0\]/],
+  ])('rejects a malformed %s', (_label, raw, expected) => {
+    expect(() => validateDictionary(raw, 'broken.json')).toThrow(expected);
+  });
+
+  it('rejects a dictionary schema version from the future', () => {
+    expect(() => validateDictionary({ schemaVersion: '2.0', entries: {} }, 'future.json')).toThrow(
+      /does not understand/,
+    );
   });
 });
 

@@ -161,6 +161,13 @@ when in fact no scan file existed. `lib/dataSource.ts` checks the content type
 before parsing and raises `MissingFileError`, which carries the wording that
 sends the reader to run a scan rather than to investigate a damaged file.
 
+**Validation goes all the way down.** Checking that `whatToDo` is an array,
+without checking what is in it, let `[{ "bad": true }]` through to a React
+child and crashed the expanded row just as surely as no validation at all. A
+container of the right shape full of the wrong things is not validated
+content, so every element of every list the interface renders is checked, and
+so is every field of a reference object.
+
 **Everything is validated at one boundary.** `lib/validate.ts` checks every
 field the interface reaches for, and `lib/dataSource.ts` routes the static
 file, the local API and a hand-opened file through it. The API is not trusted
@@ -185,9 +192,16 @@ the same as having examined the domain. `CONTRACT.md` has the reasoning.
 ## Tests
 
 ```bash
-npm test                 # the dashboard: validation, scoring, coverage, token
+npm test                 # the dashboard: validation, scoring, coverage, token,
+                         # and FindingDetail rendered against real content
 cd server && npm test    # the local API: one request, one response
 ```
+
+The component tests matter more than their size suggests. Validator tests
+alone passed while two inputs still crashed the expanded row, because a
+validator can only be wrong about what it was asked to check. The rendering
+tests take content through validation, the join and into the component, and
+every entry in the committed dictionary is rendered as part of the suite.
 
 Neither suite needs PowerShell, a domain or Windows. The server suite starts
 the real server as a child process and points `AUDIT_PWSH` at something that
