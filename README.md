@@ -18,8 +18,8 @@ viewing the results.
 
 ## Current state
 
-Three detection checks are implemented and run end to end against a live
-domain, with the scan started from the dashboard itself.
+Five detection checks are implemented and run end to end, with the scan
+started from the dashboard itself.
 
 | Check | Id | State |
 |---|---|---|
@@ -27,7 +27,7 @@ domain, with the scan started from the dashboard itself.
 | Stale enabled accounts | `AD.ACCOUNT.STALE_ENABLED` | Implemented |
 | Excessive privileged group membership | `AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP` | Implemented |
 | Kerberoasting exposure | `AD.PRIVILEGE.KERBEROASTING` | Implemented |
-| Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Planned |
+| Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Implemented |
 | Risky group policy settings | `AD.POLICY.RISKY_GPO` | Planned |
 | Domain trust relationships | `AD.TRUST.RISKY_TRUST` | Planned |
 | LAPS deployment | `AD.ACCOUNT.LAPS_MISSING` | Planned |

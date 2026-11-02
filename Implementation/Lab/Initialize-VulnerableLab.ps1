@@ -412,6 +412,92 @@ $groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'] = [ordered]@{
 }
 
 # ---------------------------------------------------------------------------
+# 5. Unconstrained delegation
+#
+# Two shapes, for the same reason as section 4: a lab that only seeds the
+# obvious case never proves the check tells the cases apart.
+#
+#   LAB-APP01       a computer account trusted for unconstrained delegation,
+#                   which is where this is normally found
+#   lab_svc_portal  a user account with the same flag, which is rarer, less
+#                   expected, and just as dangerous
+#
+# DC01 already carries this flag, because every writable domain controller
+# does. It is not seeded here and it must not be reported: that exclusion is
+# the main thing this section exists to test against a real directory.
+# ---------------------------------------------------------------------------
+
+$UAC_TRUSTED_FOR_DELEGATION = 0x80000
+
+function Enable-LabUnconstrainedDelegation {
+    param([Parameter(Mandatory)] $Identity, [Parameter(Mandatory)] [string] $Name)
+
+    if (-not $PSCmdlet.ShouldProcess($Name, 'Trust for unconstrained delegation')) { return }
+
+    # Set-ADAccountControl exposes this as a named switch, which is clearer
+    # than writing the raw userAccountControl bit and leaves the other flags
+    # on the account alone.
+    Set-ADAccountControl -Identity $Identity -TrustedForDelegation $true -ErrorAction Stop
+    Write-Verbose "Enabled unconstrained delegation on $Name"
+}
+
+$delegationComputer = 'LAB-APP01'
+$existingComputer = Get-ADComputer -Filter "Name -eq '$delegationComputer'" -ErrorAction SilentlyContinue
+if (-not $existingComputer) {
+    if ($PSCmdlet.ShouldProcess($delegationComputer, 'Create computer account')) {
+        # A computer account created this way has no machine behind it, which
+        # is all this check needs: it reads the flag in the directory, not
+        # anything on the host.
+        $existingComputer = New-ADComputer -Name $delegationComputer `
+            -SamAccountName "$delegationComputer`$" `
+            -Path $serviceOu `
+            -Enabled $true `
+            -OperatingSystem 'Windows Server 2022 Standard' `
+            -Description 'Lab: trusted for unconstrained delegation' `
+            -PassThru
+    }
+}
+else {
+    Write-Verbose "$delegationComputer already exists"
+}
+if ($existingComputer) {
+    Enable-LabUnconstrainedDelegation -Identity $existingComputer -Name $delegationComputer
+}
+
+$delegationUser = 'lab_svc_portal'
+if (-not (Get-ADUser -Filter "SamAccountName -eq '$delegationUser'" -ErrorAction SilentlyContinue)) {
+    if ($PSCmdlet.ShouldProcess($delegationUser, 'Create user account for unconstrained delegation')) {
+        New-ADUser -Name $delegationUser `
+            -SamAccountName $delegationUser `
+            -UserPrincipalName "$delegationUser@$($domain.DNSRoot)" `
+            -Path $serviceOu `
+            -AccountPassword (Get-SeedPassword) `
+            -Enabled $true `
+            -PasswordNeverExpires $true `
+            -ServicePrincipalNames @("HTTP/portal.$($domain.DNSRoot)") `
+            -Description 'Lab: user account trusted for unconstrained delegation'
+    }
+}
+Enable-LabUnconstrainedDelegation -Identity $delegationUser -Name $delegationUser
+
+# lab_svc_portal holds a service principal name as well, so the Kerberoasting
+# check expects it too. Ground truth that named only one of the two would
+# score the other as a false positive.
+$groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'].objects =
+    @($groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'].objects) + $delegationUser
+$groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'].note +=
+    ' lab_svc_portal, seeded in section 5, also holds an SPN and is expected here.'
+
+$groundTruth.expected['AD.PRIVILEGE.UNCONSTRAINED_DELEGATION'] = [ordered]@{
+    shouldDetect     = $true
+    objects          = @("$delegationComputer`$", $delegationUser)
+    expectedSeverity = 'Critical'
+    note             = 'One computer account and one user account carry TRUSTED_FOR_DELEGATION. Both are enabled, which is what makes the finding Critical rather than High.'
+    mustNotDetect    = @('DC01$')
+    mustNotDetectNote = 'Every writable domain controller holds this flag by design and is excluded by the SERVER_TRUST_ACCOUNT bit. A scan that reports DC01 here has regressed.'
+}
+
+# ---------------------------------------------------------------------------
 
 if ($PSCmdlet.ShouldProcess($GroundTruthPath, 'Write ground truth')) {
     $groundTruth | ConvertTo-Json -Depth 10 | Set-Content -Path $GroundTruthPath -Encoding UTF8

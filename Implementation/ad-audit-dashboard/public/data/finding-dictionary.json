@@ -91,16 +91,28 @@
       "defaultSeverity": "Critical",
       "whyItMatters": "A computer trusted for unconstrained delegation keeps a copy of the Kerberos ticket of everyone who connects to it. If an attacker controls that computer and a domain administrator connects to it, the attacker can reuse that ticket and take over the domain.",
       "whatToDo": [
-        "Identify why delegation was configured and whether the service still needs it.",
-        "Replace unconstrained delegation with constrained delegation limited to the specific services required.",
-        "Mark administrative accounts as sensitive and not allowed to be delegated."
+        "Find out why delegation was turned on for this machine and whether the service still needs it. Often it was set years ago for something that has since been replaced.",
+        "If it is no longer needed, turn it off: open the account in Active Directory Users and Computers, go to the Delegation tab, and choose \"Do not trust this computer for delegation\".",
+        "If delegation is still needed, switch to constrained delegation and list only the specific services it has to reach. The account can then act for a user against those services and nothing else.",
+        "Protect your administrators separately, so that even a machine like this cannot reuse their tickets. Add them to the Protected Users group, or tick \"Account is sensitive and cannot be delegated\" on each one.",
+        "Until it is fixed, treat this machine as being as trusted as the most privileged person who signs in to it, and keep administrators off it."
       ],
-      "objectColumnLabel": "Computer",
+      "objectColumnLabel": "Computer or account",
       "keyAttributes": [
         "operatingSystem",
-        "lastLogonDate"
+        "lastLogonDate",
+        "enabled"
       ],
-      "references": []
+      "references": [
+        {
+          "label": "Joint advisory: Detecting and mitigating Active Directory compromises",
+          "url": "https://www.cisa.gov/resources-tools/resources/detecting-and-mitigating-active-directory-compromises"
+        },
+        {
+          "label": "Microsoft: Kerberos constrained delegation overview",
+          "url": "https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-constrained-delegation-overview"
+        }
+      ]
     },
     "AD.PRIVILEGE.KERBEROASTING": {
       "technicalName": "Kerberoastable service accounts",

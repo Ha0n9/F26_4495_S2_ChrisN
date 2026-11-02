@@ -94,6 +94,11 @@ function Test-KerberoastableAccount {
     return
 }
 
+function Test-UnconstrainedDelegation {
+    param($DomainName)
+    return
+}
+
 $outFile = Join-Path ([System.IO.Path]::GetTempPath()) "aggregator-test-$([guid]::NewGuid()).json"
 
 function Run {
@@ -106,8 +111,8 @@ function Run {
 $script:adminBehaviour = 'finding'
 $script:staleBehaviour = 'finding'
 $r = Run
-A ($r.scan.checksRequested.Count -eq 4)              'requests every registered check'
-A ($r.scan.checksCompleted.Count -eq 4)              'all four complete'
+A ($r.scan.checksRequested.Count -eq 5)              'requests every registered check'
+A ($r.scan.checksCompleted.Count -eq 5)              'all five complete'
 A (@($r.scan.checksFailed).Count -eq 0)              'nothing failed'
 A (@($r.scan.checksPartial).Count -eq 0)             'nothing partial'
 A ($r.findings.Count -eq 3)                          'collects the findings'
@@ -121,7 +126,7 @@ A (@($r.scan.checksFailed).Count -eq 1)              'the failure is recorded'
 A ($r.scan.checksFailed[0].checkId -ceq 'AD.ACCOUNT.STALE_ENABLED') 'with its check id'
 A ($r.scan.checksFailed[0].errorMessage -match 'denied') 'and its message'
 A (-not ($r.scan.checksCompleted -contains 'AD.ACCOUNT.STALE_ENABLED')) 'and is not also completed'
-A ($r.scan.checksCompleted.Count -eq 3)              'the other checks still ran'
+A ($r.scan.checksCompleted.Count -eq 4)              'the other checks still ran'
 $script:staleBehaviour = 'finding'
 
 # ---------------------------------------------------------------------------

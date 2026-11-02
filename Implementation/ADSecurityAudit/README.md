@@ -6,8 +6,10 @@ to render.
 
 ## Status
 
-Four checks are implemented. The first three have been run against a live
-domain (`auditlab.test`) from an ordinary domain user account.
+Five checks are implemented. The first three have been run against a live
+domain (`auditlab.test`) from an ordinary domain user account; the two
+delegation-related checks have been verified against stubbed cmdlets and are
+waiting on a lab run.
 
 | Check | Id | Severity | Status |
 |---|---|---|---|
@@ -15,12 +17,15 @@ domain (`auditlab.test`) from an ordinary domain user account.
 | Stale enabled accounts | `AD.ACCOUNT.STALE_ENABLED` | High | Implemented |
 | Excessive privileged group membership | `AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP` | Critical | Implemented |
 | Kerberoastable service accounts | `AD.PRIVILEGE.KERBEROASTING` | Critical, High or Medium | Implemented |
+| Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Critical or High | Implemented |
 
 Remaining checks from the proposal, in the order they will be attempted:
-unconstrained delegation, risky GPO settings, domain trust relationships,
-LAPS deployment. Unconstrained delegation is next because it, like
-Kerberoasting, is named in the CISA, NSA and ASD joint advisory on Active
-Directory compromise.
+risky GPO settings, domain trust relationships, LAPS deployment. LAPS is
+scheduled last and is the first to be cut if the schedule does not allow it.
+
+Kerberoasting and unconstrained delegation were taken first because both are
+named in the CISA, NSA and ASD joint advisory on Active Directory
+compromise.
 
 The Kerberoasting check derives its severity from what it finds rather than
 declaring one. A service account that is also privileged is Critical, RC4 or
@@ -100,10 +105,12 @@ ADSecurityAudit/
       Test-StaleEnabledAccount.ps1
       Test-ExcessiveAdminMembership.ps1
       Test-KerberoastableAccount.ps1
+      Test-UnconstrainedDelegation.ps1
   Tests/
     verify-stale-check.ps1      32 assertions
     verify-admin-check.ps1      28 assertions
     verify-kerberoast-check.ps1 50 assertions
+    verify-delegation-check.ps1 51 assertions
     verify-aggregator.ps1       25 assertions
 ```
 
@@ -114,6 +121,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\Tests\verify-stale-check.ps1
 .\Tests\verify-admin-check.ps1
 .\Tests\verify-kerberoast-check.ps1
+.\Tests\verify-delegation-check.ps1
 .\Tests\verify-aggregator.ps1
 ```
 
@@ -138,6 +146,12 @@ that a check written against one English-language lab appears to get right:
   RID 502, the same way RID 500 is excluded from the membership check.
 - A password that was never set reports a null age rather than zero, so the
   check never calls it stale on the strength of a missing value.
+- Domain controllers are excluded from the unconstrained delegation check by
+  the SERVER_TRUST_ACCOUNT bit, not by an organizational unit or a group
+  name. Every writable controller holds the delegation flag by design.
+- That check re-reads `userAccountControl` itself rather than trusting the
+  LDAP filter that selected the account, because a check that trusts a filter
+  it never evaluated cannot notice when the filter is wrong.
 
 Writing these found a latent bug in `ConvertTo-AuditTimestamp`, which had been
 unreachable for two weeks because no implemented check passed a non-null

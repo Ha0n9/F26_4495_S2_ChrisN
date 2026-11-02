@@ -70,6 +70,7 @@ function Invoke-ADSecurityAudit {
         'AD.POLICY.WEAK_PASSWORD'                 = 'Test-WeakPasswordPolicy'
         'AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP' = 'Test-ExcessiveAdminMembership'
         'AD.PRIVILEGE.KERBEROASTING'              = 'Test-KerberoastableAccount'
+        'AD.PRIVILEGE.UNCONSTRAINED_DELEGATION'   = 'Test-UnconstrainedDelegation'
     }
 
     $requested = if ($CheckId) {
