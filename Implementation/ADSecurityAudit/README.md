@@ -110,8 +110,9 @@ ADSecurityAudit/
     verify-stale-check.ps1      32 assertions
     verify-admin-check.ps1      28 assertions
     verify-kerberoast-check.ps1 50 assertions
-    verify-delegation-check.ps1 51 assertions
+    verify-delegation-check.ps1 96 assertions
     verify-aggregator.ps1       25 assertions
+    verify-lab-seeding.ps1      36 assertions, over ..\..\Lab
 ```
 
 ## Testing
@@ -123,6 +124,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\Tests\verify-kerberoast-check.ps1
 .\Tests\verify-delegation-check.ps1
 .\Tests\verify-aggregator.ps1
+.\Tests\verify-lab-seeding.ps1
 ```
 
 The tests stub the ActiveDirectory cmdlets, so they run on any machine and
@@ -152,6 +154,25 @@ that a check written against one English-language lab appears to get right:
 - That check re-reads `userAccountControl` itself rather than trusting the
   LDAP filter that selected the account, because a check that trusts a filter
   it never evaluated cannot notice when the filter is wrong.
+- It asks `Get-ADServiceAccount` as well as `Get-ADComputer` and
+  `Get-ADUser`, because the delegation flag lives in `userAccountControl` and
+  managed service accounts have one. An account returned by two of those
+  queries is reported once.
+- Each account is classified by the object class the directory reports, not
+  by the query that returned it, so a group managed service account is not
+  described as a user or a computer.
+- Property lists are per cmdlet. `operatingSystem` and `dNSHostName` belong
+  to the computer class, and asking `Get-ADUser` for them risks an
+  invalid-property error that would fail the whole check on every domain.
+
+`verify-lab-seeding.ps1` covers the seeding script rather than the module. It
+runs the real script against a directory held in memory and checks that
+`-WhatIf` writes nothing, that a second run creates nothing twice, that a
+failed creation does not end the run after earlier sections have already
+changed the directory, and that `ground-truth.json` lists what was actually
+created. That last one matters most: ground truth is what detection accuracy
+is measured against, so a file that overstates what was seeded turns a
+correct scan into measured false negatives.
 
 Writing these found a latent bug in `ConvertTo-AuditTimestamp`, which had been
 unreachable for two weeks because no implemented check passed a non-null

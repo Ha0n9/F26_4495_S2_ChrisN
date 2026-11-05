@@ -38,12 +38,16 @@ $UAC_NORMAL_ACCOUNT  = 0x200
 # Stubs
 # ---------------------------------------------------------------------------
 
-$script:computers       = @()
-$script:users           = @()
-$script:computerFilter  = $null
-$script:userFilter      = $null
-$script:properties      = @()
-$script:usedPlainFilter = $false
+$script:computers              = @()
+$script:users                  = @()
+$script:serviceAccounts        = @()
+$script:computerFilter         = $null
+$script:userFilter             = $null
+$script:serviceAccountFilter   = $null
+$script:properties             = @()
+$script:userProperties         = @()
+$script:serviceAccountProps    = @()
+$script:usedPlainFilter        = $false
 
 function Get-ADComputer {
     param($Identity, $Filter, $LDAPFilter, $Properties, $Server, $SearchBase, $ErrorAction)
@@ -56,13 +60,23 @@ function Get-ADComputer {
 function Get-ADUser {
     param($Identity, $Filter, $LDAPFilter, $Properties, $Server, $SearchBase, $ErrorAction)
     if ($Filter) { $script:usedPlainFilter = $true }
-    $script:userFilter = [string] $LDAPFilter
+    $script:userFilter     = [string] $LDAPFilter
+    $script:userProperties = @($Properties)
     return $script:users
+}
+
+function Get-ADServiceAccount {
+    param($Identity, $Filter, $LDAPFilter, $Properties, $Server, $SearchBase, $ErrorAction)
+    if ($Filter) { $script:usedPlainFilter = $true }
+    $script:serviceAccountFilter = [string] $LDAPFilter
+    $script:serviceAccountProps  = @($Properties)
+    return $script:serviceAccounts
 }
 
 function C {
     param(
         [string] $Name,
+        $Class = 'computer',
         [int]    $Uac = ($UAC_WORKSTATION -bor $UAC_DELEGATION),
         [bool]   $Enabled = $true,
         [string] $Os = 'Windows Server 2022 Standard',
@@ -73,6 +87,7 @@ function C {
     [pscustomobject]@{
         SamAccountName             = "$Name`$"
         DistinguishedName          = "CN=$Name,OU=Servers,DC=auditlab,DC=test"
+        ObjectClass                = $Class
         userAccountControl         = $Uac
         Enabled                    = $Enabled
         OperatingSystem            = $Os
@@ -86,6 +101,7 @@ function C {
 function U {
     param(
         [string] $Name,
+        $Class = 'user',
         [int]    $Uac = ($UAC_NORMAL_ACCOUNT -bor $UAC_DELEGATION),
         [bool]   $Enabled = $true,
         $LastLogon = (Get-Date).AddDays(-10),
@@ -94,6 +110,7 @@ function U {
     [pscustomobject]@{
         SamAccountName             = $Name
         DistinguishedName          = "CN=$Name,OU=Services,DC=auditlab,DC=test"
+        ObjectClass                = $Class
         userAccountControl         = $Uac
         Enabled                    = $Enabled
         OperatingSystem            = $null
@@ -104,13 +121,46 @@ function U {
     }
 }
 
+<#
+    A managed service account. Both the standalone and the group flavour are
+    built here, because the only difference that matters to this check is the
+    object class the directory reports.
+#>
+function S {
+    param(
+        [string] $Name,
+        $Class = 'msDS-GroupManagedServiceAccount',
+        [int]    $Uac = ($UAC_WORKSTATION -bor $UAC_DELEGATION),
+        [bool]   $Enabled = $true,
+        $LastLogon = (Get-Date).AddDays(-1),
+        [string[]] $Spns = @('MSSQLSvc/db02.auditlab.test:1433'),
+        [string[]] $AllowedToDelegateTo = @()
+    )
+    [pscustomobject]@{
+        SamAccountName             = "$Name`$"
+        DistinguishedName          = "CN=$Name,CN=Managed Service Accounts,DC=auditlab,DC=test"
+        ObjectClass                = $Class
+        userAccountControl         = $Uac
+        Enabled                    = $Enabled
+        OperatingSystem            = $null
+        LastLogonDate              = $LastLogon
+        DNSHostName                = "$Name.auditlab.test"
+        ServicePrincipalName       = $Spns
+        'msDS-AllowedToDelegateTo' = $AllowedToDelegateTo
+    }
+}
+
 function Reset-Fixture {
-    $script:computers       = @()
-    $script:users           = @()
-    $script:computerFilter  = $null
-    $script:userFilter      = $null
-    $script:properties      = @()
-    $script:usedPlainFilter = $false
+    $script:computers            = @()
+    $script:users                = @()
+    $script:serviceAccounts      = @()
+    $script:computerFilter       = $null
+    $script:userFilter           = $null
+    $script:serviceAccountFilter = $null
+    $script:properties           = @()
+    $script:userProperties       = @()
+    $script:serviceAccountProps  = @()
+    $script:usedPlainFilter      = $false
 }
 
 function Run {
@@ -129,6 +179,15 @@ A ($script:userFilter -eq $script:computerFilter)                 'applies the s
 A (-not $script:usedPlainFilter)                                  'uses an LDAP filter rather than -Filter'
 A ($script:properties -contains 'userAccountControl')             'requests userAccountControl so the flags can be checked here too'
 A ($script:properties -contains 'msDS-AllowedToDelegateTo')       'requests the constrained delegation attribute'
+A ($script:serviceAccountFilter -eq $script:computerFilter)       'applies the same filter to managed service accounts'
+# operatingSystem and dNSHostName belong to the computer class. Asking
+# Get-ADUser for them risks an invalid-property error that would fail the
+# whole check on every domain, including ones with nothing to report.
+A ($script:properties -contains 'operatingSystem')                'asks computers for operatingSystem'
+A (-not ($script:userProperties -contains 'operatingSystem'))     'does not ask user accounts for operatingSystem'
+A (-not ($script:userProperties -contains 'dNSHostName'))         'does not ask user accounts for dNSHostName'
+A ($script:userProperties -contains 'userAccountControl')         'still asks user accounts for userAccountControl'
+A ($script:serviceAccountProps -contains 'userAccountControl')    'asks managed service accounts for userAccountControl'
 
 # ---------------------------------------------------------------------------
 "`nNothing to report"
@@ -245,6 +304,112 @@ A ($r.affectedObjectCount -eq 3)                                  'two servers a
 A ($r.evidence.exposedAccountCount -eq 3)                         'evidence agrees with the object count'
 
 # ---------------------------------------------------------------------------
+"`nManaged service accounts"
+# The gap this section exists for: the flag lives in userAccountControl, and
+# managed service accounts have one. A check that asked only Get-ADComputer
+# and Get-ADUser reported such an account as neither a risk nor a gap, which
+# is the worst shape a hole in a security tool can take.
+Reset-Fixture
+$script:serviceAccounts = @( (S 'gmsa_sql') )
+$r = Run
+A (@($r).Count -eq 1)                                             'a gMSA with the flag is detected'
+A ($r.affectedObjectCount -eq 1)                                  'one affected object'
+A ($r.affectedObjects[0].name -eq 'gmsa_sql$')                    'reports the account'
+A ($r.affectedObjects[0].objectClass -eq 'msDS-GroupManagedServiceAccount') 'classified by the directory class, not as a user or a computer'
+A ($r.affectedObjects[0].attributes.accountCategory -eq 'managedServiceAccount') 'and grouped under managedServiceAccount'
+A ($r.evidence.managedServiceAccountCount -eq 1)                  'counted in the evidence'
+A ($r.evidence.groupManagedServiceAccountCount -eq 1)             'and counted again as a group managed account specifically'
+A ($r.evidence.userAccountCount -eq 0)                            'not counted as a user'
+A ($r.evidence.computerAccountCount -eq 0)                        'not counted as a computer'
+A ($r.evidence.summary -match 'managed service accounts')         'the summary says PowerShell is needed rather than the Delegation tab'
+
+Reset-Fixture
+$script:serviceAccounts = @( (S 'msa_app' -Class 'msDS-ManagedServiceAccount') )
+$r = Run
+A ($r.affectedObjects[0].objectClass -eq 'msDS-ManagedServiceAccount') 'a standalone MSA keeps its own class'
+A ($r.evidence.managedServiceAccountCount -eq 1)                  'counted as a managed service account'
+A ($r.evidence.groupManagedServiceAccountCount -eq 0)             'but not as a group managed one'
+
+Reset-Fixture
+# Returned by the query but without the bit set. The bitwise check has to
+# reject it, exactly as it does for computers and users.
+$script:serviceAccounts = @( (S 'gmsa_clean' -Uac $UAC_WORKSTATION) )
+A ($null -eq (Run))                                               'a managed service account without the flag is rejected'
+
+Reset-Fixture
+$script:serviceAccounts = @( (S 'gmsa_old' -Uac ($UAC_WORKSTATION -bor $UAC_DELEGATION -bor $UAC_DISABLED) -Enabled $false) )
+A ($null -eq (Run))                                               'a disabled managed service account is skipped by default'
+$r = Run @{ IncludeDisabledAccounts = $true }
+A ($r.affectedObjectCount -eq 1)                                  'and included on request'
+A ($r.severity -eq 'High')                                        'with the same latent-exposure severity as other account types'
+
+Reset-Fixture
+$script:serviceAccounts = @( (S 'gmsa_sql') )
+A ($null -eq (Run @{ ExcludedAccountNames = @('gmsa_sql$') }))    'the exclusion list works for managed service accounts'
+
+Reset-Fixture
+$script:serviceAccounts = @( (S 'gmsa_dc' -Uac ($UAC_SERVER_TRUST -bor $UAC_DELEGATION)) )
+$r = Run
+A ($null -eq $r)                                                  'the controller exclusion applies to this query too'
+
+Reset-Fixture
+$script:serviceAccounts = @( (S 'gmsa_mig' -AllowedToDelegateTo @('CIFS/files01.auditlab.test')) )
+$r = Run
+A ($r.affectedObjects[0].attributes.alsoHasConstrainedDelegation -eq $true) 'constrained delegation alongside it is flagged'
+A ($r.evidence.alsoConstrainedCount -eq 1)                        'and counted'
+
+Reset-Fixture
+# Constrained delegation on its own is a different and much smaller
+# exposure. Without the unconstrained bit there is nothing to report here.
+$script:serviceAccounts = @( (S 'gmsa_constrained' -Uac $UAC_WORKSTATION -AllowedToDelegateTo @('CIFS/files01.auditlab.test')) )
+A ($null -eq (Run))                                               'constrained delegation alone is not reported as unconstrained'
+
+# ---------------------------------------------------------------------------
+"`nAll three kinds in one finding"
+Reset-Fixture
+$script:computers       = @( (C 'DC01' -Uac ($UAC_SERVER_TRUST -bor $UAC_DELEGATION)), (C 'SRV01') )
+$script:users           = @( (U 'svc_app') )
+$script:serviceAccounts = @( (S 'gmsa_sql'), (S 'msa_app' -Class 'msDS-ManagedServiceAccount') )
+$r = Run
+A (@($r).Count -eq 1)                                             'still one finding, not one per account type'
+A ($r.affectedObjectCount -eq 4)                                  'one computer, one user, two managed accounts, controller excluded'
+A ($r.evidence.computerAccountCount -eq 1)                        'computers counted'
+A ($r.evidence.userAccountCount -eq 1)                            'users counted'
+A ($r.evidence.managedServiceAccountCount -eq 2)                  'managed service accounts counted'
+A ($r.evidence.domainControllersSkipped -eq 1)                    'the controller is still counted as skipped'
+A (($r.evidence.computerAccountCount + $r.evidence.userAccountCount + $r.evidence.managedServiceAccountCount) -eq $r.evidence.exposedAccountCount) 'the categories add up to the total'
+A ($r.evidence.query -match 'Get-ADServiceAccount')               'the recorded query names all three cmdlets'
+$classes = @($r.affectedObjects.objectClass | Sort-Object -Unique)
+A ($classes.Count -eq 4)                                          'four distinct object classes are reported'
+
+# ---------------------------------------------------------------------------
+"`nThe same account returned by two queries"
+Reset-Fixture
+# Managed service account classes descend from computer in the schema, so an
+# overlap between two of these queries is plausible. Reporting the account
+# twice would overstate the exposure.
+$duplicate = S 'gmsa_sql'
+$script:serviceAccounts = @( $duplicate )
+$script:computers       = @( $duplicate )
+$r = Run
+A ($r.affectedObjectCount -eq 1)                                  'reported once, not twice'
+A ($r.evidence.exposedAccountCount -eq 1)                         'evidence agrees'
+A ($r.evidence.duplicatesSkipped -eq 1)                           'and the duplicate is recorded rather than hidden'
+A ($r.affectedObjects[0].objectClass -eq 'msDS-GroupManagedServiceAccount') 'the surviving copy keeps its real class'
+
+# ---------------------------------------------------------------------------
+"`nClassification falls back rather than guessing"
+Reset-Fixture
+# An object the directory did not label. The query it came from is a better
+# answer than an empty class name, which New-AffectedObject would reject.
+$noClass = C 'SRV_NOCLASS' -Class $null
+$script:computers = @( $noClass )
+$r = Run
+A ($r.affectedObjects[0].objectClass -eq 'computer')              'falls back to the query that returned it'
+A ($r.affectedObjects[0].attributes.accountCategory -eq 'computer') 'and categorises it accordingly'
+
+
+# ---------------------------------------------------------------------------
 "`nEvidence records how the check ran"
 Reset-Fixture
 $script:computers = @( (C 'SRV01') )
@@ -263,6 +428,18 @@ A ($back.affectedObjects[0].attributes.operatingSystem -match 'Windows Server') 
 
 # ---------------------------------------------------------------------------
 "`nError propagation"
+Reset-Fixture
+# A query that fails must reach the aggregator, which records the check under
+# checksFailed. Carrying on with two sources out of three would report part
+# of a domain as all of it.
+function Get-ADServiceAccount { param($Identity, $Filter, $LDAPFilter, $Properties, $Server, $SearchBase, $ErrorAction) throw 'Access is denied reading managed service accounts' }
+$threw = $false
+$message = $null
+try { Run | Out-Null } catch { $threw = $true; $message = $_.Exception.Message }
+A $threw                                                          'a managed service account query failure reaches the caller'
+A ($message -match 'managed service accounts')                    'and is not swallowed or reworded into something else'
+
+function Get-ADServiceAccount { param($Identity, $Filter, $LDAPFilter, $Properties, $Server, $SearchBase, $ErrorAction) return @() }
 function Get-ADComputer { param($Identity, $Filter, $LDAPFilter, $Properties, $Server, $SearchBase, $ErrorAction) throw 'Access is denied' }
 $threw = $false
 try { Run | Out-Null } catch { $threw = $true }

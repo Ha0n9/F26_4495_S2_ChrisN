@@ -57,7 +57,12 @@
 param(
     [int]          $StaleAccountCount = 3,
     [string]       $GroundTruthPath   = './ground-truth.json',
-    [securestring] $AccountPassword
+    [securestring] $AccountPassword,
+
+    # Off by default. A group managed service account needs a KDS root key,
+    # which is forest-wide configuration, and this script will not create
+    # that on your behalf. See section 5 for what to run first.
+    [switch]       $IncludeManagedServiceAccount
 )
 
 $ErrorActionPreference = 'Stop'
@@ -414,55 +419,77 @@ $groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'] = [ordered]@{
 # ---------------------------------------------------------------------------
 # 5. Unconstrained delegation
 #
-# Two shapes, for the same reason as section 4: a lab that only seeds the
+# Three shapes, for the same reason as section 4: a lab that only seeds the
 # obvious case never proves the check tells the cases apart.
 #
 #   LAB-APP01       a computer account trusted for unconstrained delegation,
 #                   which is where this is normally found
 #   lab_svc_portal  a user account with the same flag, which is rarer, less
 #                   expected, and just as dangerous
+#   lab_gmsa_app    a group managed service account with the same flag, which
+#                   the check used to miss entirely. Opt-in: creating one
+#                   needs a KDS root key, which is forest-wide configuration
+#                   this script will not create for you. Pass
+#                   -IncludeManagedServiceAccount once that key exists.
 #
 # DC01 already carries this flag, because every writable domain controller
 # does. It is not seeded here and it must not be reported: that exclusion is
 # the main thing this section exists to test against a real directory.
 # ---------------------------------------------------------------------------
 
-$UAC_TRUSTED_FOR_DELEGATION = 0x80000
+# Recorded as each account is actually flagged, so ground truth describes
+# what happened rather than what the script intended. A run where an account
+# could not be created, or where -Confirm was declined, must not leave a
+# ground truth file claiming otherwise.
+$delegationSeeded = [System.Collections.Generic.List[string]]::new()
 
 function Enable-LabUnconstrainedDelegation {
-    param([Parameter(Mandatory)] $Identity, [Parameter(Mandatory)] [string] $Name)
+    param(
+        [Parameter(Mandatory)] [string] $SamAccountName,
+        [Parameter(Mandatory)] [string] $Name
+    )
 
+    # Called unconditionally, so that -WhatIf prints this step too. An
+    # earlier version only reached it when the account had just been created,
+    # which meant a preview run showed the account being made and never
+    # showed it being given the flag.
     if (-not $PSCmdlet.ShouldProcess($Name, 'Trust for unconstrained delegation')) { return }
 
-    # Set-ADAccountControl exposes this as a named switch, which is clearer
-    # than writing the raw userAccountControl bit and leaves the other flags
-    # on the account alone.
-    Set-ADAccountControl -Identity $Identity -TrustedForDelegation $true -ErrorAction Stop
+    # Re-read rather than trusting an object captured earlier. Nothing exists
+    # after a declined creation, and Set-ADAccountControl with -ErrorAction
+    # Stop would then end the whole script here, after sections 1 to 4 have
+    # already changed the domain.
+    $account = Get-ADObject -LDAPFilter "(sAMAccountName=$SamAccountName)" -ErrorAction SilentlyContinue
+    if (-not $account) {
+        Write-Warning "$Name does not exist, so unconstrained delegation was not set on it."
+        return
+    }
+
+    Set-ADAccountControl -Identity $account.DistinguishedName -TrustedForDelegation $true -ErrorAction Stop
+    $delegationSeeded.Add($SamAccountName)
     Write-Verbose "Enabled unconstrained delegation on $Name"
 }
 
-$delegationComputer = 'LAB-APP01'
-$existingComputer = Get-ADComputer -Filter "Name -eq '$delegationComputer'" -ErrorAction SilentlyContinue
-if (-not $existingComputer) {
+$delegationComputer    = 'LAB-APP01'
+$delegationComputerSam = "$delegationComputer`$"
+
+if (-not (Get-ADComputer -Filter "Name -eq '$delegationComputer'" -ErrorAction SilentlyContinue)) {
     if ($PSCmdlet.ShouldProcess($delegationComputer, 'Create computer account')) {
         # A computer account created this way has no machine behind it, which
         # is all this check needs: it reads the flag in the directory, not
         # anything on the host.
-        $existingComputer = New-ADComputer -Name $delegationComputer `
-            -SamAccountName "$delegationComputer`$" `
+        New-ADComputer -Name $delegationComputer `
+            -SamAccountName $delegationComputerSam `
             -Path $serviceOu `
             -Enabled $true `
             -OperatingSystem 'Windows Server 2022 Standard' `
-            -Description 'Lab: trusted for unconstrained delegation' `
-            -PassThru
+            -Description 'Lab: trusted for unconstrained delegation'
     }
 }
 else {
     Write-Verbose "$delegationComputer already exists"
 }
-if ($existingComputer) {
-    Enable-LabUnconstrainedDelegation -Identity $existingComputer -Name $delegationComputer
-}
+Enable-LabUnconstrainedDelegation -SamAccountName $delegationComputerSam -Name $delegationComputer
 
 $delegationUser = 'lab_svc_portal'
 if (-not (Get-ADUser -Filter "SamAccountName -eq '$delegationUser'" -ErrorAction SilentlyContinue)) {
@@ -478,23 +505,80 @@ if (-not (Get-ADUser -Filter "SamAccountName -eq '$delegationUser'" -ErrorAction
             -Description 'Lab: user account trusted for unconstrained delegation'
     }
 }
-Enable-LabUnconstrainedDelegation -Identity $delegationUser -Name $delegationUser
+Enable-LabUnconstrainedDelegation -SamAccountName $delegationUser -Name $delegationUser
+
+# The managed service account, which is the shape the check used to miss
+# entirely. Opt-in, because creating one needs a KDS root key and that is
+# forest-wide configuration this script will not create for you.
+$delegationGmsa    = 'lab_gmsa_app'
+$delegationGmsaSam = "$delegationGmsa`$"
+$gmsaAttempted     = $false
+
+if ($IncludeManagedServiceAccount) {
+    $kdsKey = $null
+    try { $kdsKey = Get-KdsRootKey -ErrorAction SilentlyContinue | Select-Object -First 1 } catch { $kdsKey = $null }
+
+    if (-not $kdsKey) {
+        Write-Warning @'
+-IncludeManagedServiceAccount was requested, but this forest has no KDS root
+key, so a group managed service account cannot be created.
+
+Creating one is forest-wide configuration and this script will not do it for
+you. Run this once on the domain controller as an enterprise administrator:
+
+    Add-KdsRootKey -EffectiveImmediately
+
+The key is only usable ten hours later, which is how long domain controllers
+are given to replicate it. In an isolated single-controller lab you may
+backdate it instead, which is safe there and nowhere else:
+
+    Add-KdsRootKey -EffectiveTime ((Get-Date).AddHours(-10))
+
+Then run this script again with -IncludeManagedServiceAccount.
+'@
+    }
+    else {
+        $gmsaAttempted = $true
+        if (-not (Get-ADServiceAccount -Filter "Name -eq '$delegationGmsa'" -ErrorAction SilentlyContinue)) {
+            if ($PSCmdlet.ShouldProcess($delegationGmsa, 'Create group managed service account')) {
+                New-ADServiceAccount -Name $delegationGmsa `
+                    -DNSHostName "$delegationGmsa.$($domain.DNSRoot)" `
+                    -Path $serviceOu `
+                    -Enabled $true `
+                    -Description 'Lab: managed service account trusted for unconstrained delegation'
+            }
+        }
+        else {
+            Write-Verbose "$delegationGmsa already exists"
+        }
+        Enable-LabUnconstrainedDelegation -SamAccountName $delegationGmsaSam -Name $delegationGmsa
+    }
+}
+else {
+    Write-Verbose 'Skipping the managed service account fixture. Pass -IncludeManagedServiceAccount to seed it.'
+}
 
 # lab_svc_portal holds a service principal name as well, so the Kerberoasting
 # check expects it too. Ground truth that named only one of the two would
 # score the other as a false positive.
-$groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'].objects =
-    @($groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'].objects) + $delegationUser
-$groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'].note +=
-    ' lab_svc_portal, seeded in section 5, also holds an SPN and is expected here.'
+if ($delegationSeeded -contains $delegationUser) {
+    $groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'].objects =
+        @($groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'].objects) + $delegationUser
+    $groundTruth.expected['AD.PRIVILEGE.KERBEROASTING'].note +=
+        ' lab_svc_portal, seeded in section 5, also holds an SPN and is expected here.'
+}
 
 $groundTruth.expected['AD.PRIVILEGE.UNCONSTRAINED_DELEGATION'] = [ordered]@{
-    shouldDetect     = $true
-    objects          = @("$delegationComputer`$", $delegationUser)
+    # Only the accounts the script actually flagged. Listing what it meant to
+    # create would turn a half-finished run into measured false negatives.
+    shouldDetect     = ($delegationSeeded.Count -gt 0)
+    objects          = $delegationSeeded.ToArray()
     expectedSeverity = 'Critical'
-    note             = 'One computer account and one user account carry TRUSTED_FOR_DELEGATION. Both are enabled, which is what makes the finding Critical rather than High.'
+    note             = 'Accounts carrying TRUSTED_FOR_DELEGATION, recorded as each one was flagged. All are enabled, which is what makes the finding Critical rather than High.'
     mustNotDetect    = @('DC01$')
     mustNotDetectNote = 'Every writable domain controller holds this flag by design and is excluded by the SERVER_TRUST_ACCOUNT bit. A scan that reports DC01 here has regressed.'
+    managedServiceAccountSeeded = $gmsaAttempted
+    notSeeded        = if ($gmsaAttempted) { $null } else { 'A managed service account. Pass -IncludeManagedServiceAccount, which needs a KDS root key in the forest, to cover that path against a live directory.' }
 }
 
 # ---------------------------------------------------------------------------

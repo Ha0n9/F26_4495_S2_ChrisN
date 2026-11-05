@@ -86,19 +86,21 @@
     },
     "AD.PRIVILEGE.UNCONSTRAINED_DELEGATION": {
       "technicalName": "Unconstrained delegation enabled",
-      "title": "Some computers can impersonate any user who connects to them",
+      "title": "Some machines and accounts can impersonate any user who connects to them",
       "category": "Privilege management",
       "defaultSeverity": "Critical",
-      "whyItMatters": "A computer trusted for unconstrained delegation keeps a copy of the Kerberos ticket of everyone who connects to it. If an attacker controls that computer and a domain administrator connects to it, the attacker can reuse that ticket and take over the domain.",
+      "whyItMatters": "A machine or account trusted for unconstrained delegation keeps a reusable copy of the Kerberos ticket of everyone who connects to it. If an attacker controls it and a domain administrator has signed in there, the attacker can replay that ticket and take over the domain. Nothing has to be exploited for this to be true: it is what the setting does. It can be set on a computer, on an ordinary account running a service, or on a managed service account, and the Account category column below says which kind each one is, because the fix differs.",
       "whatToDo": [
-        "Find out why delegation was turned on for this machine and whether the service still needs it. Often it was set years ago for something that has since been replaced.",
-        "If it is no longer needed, turn it off: open the account in Active Directory Users and Computers, go to the Delegation tab, and choose \"Do not trust this computer for delegation\".",
-        "If delegation is still needed, switch to constrained delegation and list only the specific services it has to reach. The account can then act for a user against those services and nothing else.",
-        "Protect your administrators separately, so that even a machine like this cannot reuse their tickets. Add them to the Protected Users group, or tick \"Account is sensitive and cannot be delegated\" on each one.",
-        "Until it is fixed, treat this machine as being as trusted as the most privileged person who signs in to it, and keep administrators off it."
+        "Find out what the service actually does before changing anything. Delegation is switched on so that a service can pass a user's identity on to a second service, for example a web application reaching a database as the person using it. Turning it off will break that, so confirm what depends on it first and plan the change with whoever owns the service.",
+        "Prefer narrowing it to constrained delegation over removing it outright. Constrained delegation lets the account act for a user against a named list of services and nothing else, which usually keeps the application working while closing the exposure.",
+        "For a computer account, or an ordinary user or service account: open the account in Active Directory Users and Computers and go to the Delegation tab. Choose “Trust this computer for delegation to specified services only” and list those services, or “Do not trust this computer for delegation” if it turns out none are needed. On a user account the tab only appears once the account has a service name registered.",
+        "For a managed service account or a group managed service account there is no Delegation tab, so use PowerShell. To remove it: Set-ADAccountControl -Identity 'name$' -TrustedForDelegation $false. To move to constrained delegation instead: Set-ADServiceAccount -Identity 'name$' -Add @{'msDS-AllowedToDelegateTo' = 'CIFS/server.example.com'}. Remember the trailing dollar sign in the name.",
+        "Protect your administrators separately, so that a machine like this cannot replay their tickets even while it is being fixed. Add them to the Protected Users group, or tick “Account is sensitive and cannot be delegated” on each administrative account.",
+        "Until it is resolved, treat each of these as being as trusted as the most privileged person who signs in to it, and keep administrators off them."
       ],
-      "objectColumnLabel": "Computer or account",
+      "objectColumnLabel": "Machine or account",
       "keyAttributes": [
+        "accountCategory",
         "operatingSystem",
         "lastLogonDate",
         "enabled"
@@ -111,6 +113,10 @@
         {
           "label": "Microsoft: Kerberos constrained delegation overview",
           "url": "https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-constrained-delegation-overview"
+        },
+        {
+          "label": "Microsoft: Configure Kerberos delegation for group managed service accounts",
+          "url": "https://learn.microsoft.com/en-us/windows-server/security/group-managed-service-accounts/configure-kerberos-delegation-group-managed-service-accounts"
         }
       ]
     },
