@@ -150,6 +150,41 @@
           "url": "https://learn.microsoft.com/en-us/windows-server/security/group-managed-service-accounts/group-managed-service-accounts-overview"
         }
       ]
+    },
+    "AD.POLICY.RISKY_GPO": {
+      "technicalName": "Risky group policy settings",
+      "title": "Group policy is handing out passwords or privileges it should not",
+      "category": "Authentication policy",
+      "defaultSeverity": "High",
+      "whyItMatters": "Group policy is stored as ordinary files on a share that every computer in the domain has to read, which means every person in the domain can read it too. Three things found there are worth acting on. A password saved by a group policy preference is scrambled with a key Microsoft published years ago, so anyone who can open the file can read the password. A powerful Windows privilege handed to a group like Authenticated Users or Domain Users is handed to everybody, on every machine the policy reaches, and several of those privileges let an ordinary account take over the machine. And a policy that switches the guest account on opens a way in that needs no account at all. The Issue column below says which of the three each row is.",
+      "whatToDo": [
+        "For a stored password, treat it as already known. Change the password on every account it was set for, then delete the preference that set it. Finding and removing the file is not enough on its own, because anyone who copied it still has the password.",
+        "Replace that preference with something that does not store a secret. Local Administrator Password Solution manages local administrator passwords without putting them in a file, and a scheduled task or service can run as a managed service account instead of a named account with a password.",
+        "For a dangerous privilege granted broadly, find out which application asked for it. These are usually added for one piece of software and then left in a policy that applies far more widely than intended.",
+        "Then narrow it. Grant the privilege to a specific group containing only the accounts that need it, and link the policy only to the machines that run that software, rather than to the whole domain.",
+        "For the guest account, set the policy to disable it unless you have a documented reason to keep it, and check whether anything is relying on it before you change it.",
+        "Check the scope of each policy before changing it. This report reads what a policy says, not where it currently applies, so confirm in Group Policy Management which machines it reaches."
+      ],
+      "objectColumnLabel": "Group policy object",
+      "keyAttributes": [
+        "issue",
+        "setting",
+        "detail"
+      ],
+      "references": [
+        {
+          "label": "Microsoft MS14-025: Vulnerability in Group Policy Preferences",
+          "url": "https://learn.microsoft.com/en-us/security-updates/securitybulletins/2014/ms14-025"
+        },
+        {
+          "label": "Joint advisory: Detecting and mitigating Active Directory compromises",
+          "url": "https://www.cisa.gov/resources-tools/resources/detecting-and-mitigating-active-directory-compromises"
+        },
+        {
+          "label": "Microsoft: User rights assignment",
+          "url": "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/security-policy-settings/user-rights-assignment"
+        }
+      ]
     }
   }
 }

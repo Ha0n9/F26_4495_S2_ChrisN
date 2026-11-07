@@ -23,11 +23,12 @@ AD.POLICY.WEAK_PASSWORD
 AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP
 ```
 
-Two checks have been added since, and neither appears here:
+Three checks have been added since, and none of them appears here:
 
 ```
 AD.PRIVILEGE.KERBEROASTING
 AD.PRIVILEGE.UNCONSTRAINED_DELEGATION
+AD.POLICY.RISKY_GPO
 ```
 
 `scan-baseline.json` also predates `checksPartial`, which is why the field is
@@ -59,6 +60,11 @@ Add `-IncludeManagedServiceAccount` to seed the managed service account that
 exercises the unconstrained delegation check's third account type. It needs a
 KDS root key in the forest, which the script will not create for you; it
 prints the command and the reason if the key is missing.
+
+The group policy fixtures need the GroupPolicy module, which a domain
+controller has by default. If it is missing the script says so and skips that
+section rather than failing. Neither policy it creates is linked to anything,
+so the lab's own machines do not apply these settings.
 
 **On AUDIT01**, signed in as `audit_user` in a session that is not elevated:
 

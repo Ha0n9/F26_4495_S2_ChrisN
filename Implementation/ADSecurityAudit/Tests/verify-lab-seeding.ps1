@@ -52,6 +52,7 @@ $global:LabProbe = @{
     Dir    = @{}
     Ous    = @{}
     Groups = @{}
+    Gpos   = @{}
     Writes = [System.Collections.Generic.List[string]]::new()
     KdsKey = $null
 }
@@ -60,6 +61,7 @@ function Reset-Directory {
     $global:LabProbe.Dir    = @{}
     $global:LabProbe.Ous    = @{}
     $global:LabProbe.Groups = @{}
+    $global:LabProbe.Gpos   = @{}
     $global:LabProbe.Writes = [System.Collections.Generic.List[string]]::new()
     $global:LabProbe.KdsKey = $null
 }
@@ -224,6 +226,69 @@ function Set-ADAccountControl {
 
 function Get-KdsRootKey { param([Parameter(ValueFromRemainingArguments)] $Rest) return $global:LabProbe.KdsKey }
 
+<#
+    Group policy stubs.
+
+    New-GPO and Get-GPO are only defined by Enable-GpoStubs, because the
+    seeding script is meant to detect their absence and skip the section
+    rather than fail. The default state here is a machine without the
+    GroupPolicy module, which is any machine that is not a domain
+    controller.
+
+    New-Item and Set-Content are intercepted for SYSVOL paths only. Left
+    alone they would create a directory literally named
+    \\auditlab.test\SYSVOL\... underneath wherever the tests happen to be
+    running.
+#>
+function Enable-GpoStubs {
+    function global:New-GPO {
+        param([string] $Name, [Parameter(ValueFromRemainingArguments)] $Rest)
+        $global:LabProbe.Writes.Add("New-GPO:$Name")
+        $gpo = [pscustomobject]@{ Id = [guid]::NewGuid(); DisplayName = $Name }
+        $global:LabProbe.Gpos[$Name] = $gpo
+        return $gpo
+    }
+    function global:Get-GPO {
+        param([string] $Name, [Parameter(ValueFromRemainingArguments)] $Rest)
+        if ($global:LabProbe.Gpos.ContainsKey($Name)) { return $global:LabProbe.Gpos[$Name] }
+        return $null
+    }
+    function global:New-Item {
+        param($Path, $ItemType, [switch] $Force, [Parameter(ValueFromRemainingArguments)] $Rest)
+        if ("$Path" -like '*SYSVOL*') { return $null }
+        Microsoft.PowerShell.Management\New-Item -Path $Path -ItemType $ItemType -Force:$Force
+    }
+    function global:Set-Content {
+        # Pipeline aware, because the seeding script pipes the ground truth
+        # JSON into it. A stub that only took -Value would make the script
+        # look broken at the last line of a run that was fine.
+        [CmdletBinding()]
+        param(
+            $LiteralPath,
+            $Path,
+            [Parameter(ValueFromPipeline)] $Value,
+            $Encoding
+        )
+        begin { $buffer = [System.Collections.Generic.List[string]]::new() }
+        process { if ($null -ne $Value) { $buffer.Add([string] $Value) } }
+        end {
+            $target = if ($LiteralPath) { $LiteralPath } else { $Path }
+            if ("$target" -like '*SYSVOL*') {
+                $leaf = $target.Substring($target.LastIndexOf('\') + 1)
+                $global:LabProbe.Writes.Add("PolicyFile:$leaf")
+                return
+            }
+            Microsoft.PowerShell.Management\Set-Content -LiteralPath $target -Value ($buffer -join [Environment]::NewLine)
+        }
+    }
+}
+
+function Disable-GpoStubs {
+    foreach ($name in 'New-GPO', 'Get-GPO', 'New-Item', 'Set-Content') {
+        Remove-Item "Function:\global:$name" -ErrorAction SilentlyContinue
+    }
+}
+
 # ---------------------------------------------------------------------------
 
 function Invoke-Lab {
@@ -352,6 +417,41 @@ A (($global:LabProbe.Writes | Where-Object { $_ -like 'Set-ADAccountControl:*' }
 $delegation = $result.Truth.expected.'AD.PRIVILEGE.UNCONSTRAINED_DELEGATION'
 A ($delegation.objects -contains 'lab_gmsa_app$')      'ground truth names it'
 A ($delegation.managedServiceAccountSeeded -eq $true)  'and records that the path was covered'
+
+# ---------------------------------------------------------------------------
+"`nThe group policy fixtures"
+Reset-Directory
+$result = Invoke-Lab
+A (-not ($global:LabProbe.Writes -like 'New-GPO:*'))     'are skipped when the GroupPolicy module is absent'
+A ((($result.Warnings) -join ' ') -match 'GroupPolicy module') 'and the reason is stated'
+A ((($result.Warnings) -join ' ') -match 'Install-WindowsFeature') 'with the command that provides it'
+$gpo = $result.Truth.expected.'AD.POLICY.RISKY_GPO'
+A ($gpo.shouldDetect -eq $false)                         'ground truth expects no detection'
+A (@($gpo.objects).Count -eq 0)                          'and names nothing'
+
+Reset-Directory
+Enable-GpoStubs
+$result = Invoke-Lab
+A (($global:LabProbe.Writes | Where-Object { $_ -eq 'New-GPO:Lab Legacy Preferences' }).Count -eq 1) 'create the preferences policy when the module is there'
+A (($global:LabProbe.Writes | Where-Object { $_ -eq 'New-GPO:Lab Workstation Rights' }).Count -eq 1) 'and the rights policy'
+A ($global:LabProbe.Writes -contains 'PolicyFile:Groups.xml')  'writing the preferences file into SYSVOL'
+A ($global:LabProbe.Writes -contains 'PolicyFile:GptTmpl.inf') 'and the security settings file'
+$gpo = $result.Truth.expected.'AD.POLICY.RISKY_GPO'
+A ($gpo.shouldDetect -eq $true)                          'ground truth expects a detection'
+A (@($gpo.objects).Count -eq 2)                          'and names both policies'
+A ($gpo.expectedIssues -eq 4)                            'recording how many issues they add up to'
+A ($gpo.mustNotDetect -contains 'SeBackupPrivilege')     'and which setting must not be reported'
+
+$creationsBefore = @($global:LabProbe.Writes | Where-Object { $_ -like 'New-GPO:*' }).Count
+Invoke-Lab | Out-Null
+A (@($global:LabProbe.Writes | Where-Object { $_ -like 'New-GPO:*' }).Count -eq $creationsBefore) 'a second run creates neither policy again'
+
+Reset-Directory
+$preview = $null
+try { Invoke-Lab @{ WhatIf = $true } | Out-Null } catch { $preview = $_ }
+A (-not ($global:LabProbe.Writes -like 'New-GPO:*'))     '-WhatIf creates no policy'
+A (-not ($global:LabProbe.Writes -like 'PolicyFile:*'))  'and writes no policy file'
+Disable-GpoStubs
 
 # ---------------------------------------------------------------------------
 "`nNo secret is written to ground truth"

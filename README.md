@@ -18,7 +18,7 @@ viewing the results.
 
 ## Current state
 
-Five detection checks are implemented and run end to end, with the scan
+Six detection checks are implemented and run end to end, with the scan
 started from the dashboard itself.
 
 | Check | Id | State |
@@ -28,7 +28,7 @@ started from the dashboard itself.
 | Excessive privileged group membership | `AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP` | Implemented |
 | Kerberoasting exposure | `AD.PRIVILEGE.KERBEROASTING` | Implemented |
 | Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Implemented |
-| Risky group policy settings | `AD.POLICY.RISKY_GPO` | Planned |
+| Risky group policy settings | `AD.POLICY.RISKY_GPO` | Implemented |
 | Domain trust relationships | `AD.TRUST.RISKY_TRUST` | Planned |
 | LAPS deployment | `AD.ACCOUNT.LAPS_MISSING` | Planned |
 

@@ -6,10 +6,10 @@ to render.
 
 ## Status
 
-Five checks are implemented. The first three have been run against a live
-domain (`auditlab.test`) from an ordinary domain user account; the two
-delegation-related checks have been verified against stubbed cmdlets and are
-waiting on a lab run.
+Six checks are implemented. The first three have been run against a live
+domain (`auditlab.test`) from an ordinary domain user account. The two
+delegation-related checks and the group policy check have been verified
+against stubs and fixtures, and are waiting on a lab run.
 
 | Check | Id | Severity | Status |
 |---|---|---|---|
@@ -18,10 +18,13 @@ waiting on a lab run.
 | Excessive privileged group membership | `AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP` | Critical | Implemented |
 | Kerberoastable service accounts | `AD.PRIVILEGE.KERBEROASTING` | Critical, High or Medium | Implemented |
 | Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Critical or High | Implemented |
+| Risky group policy settings | `AD.POLICY.RISKY_GPO` | Critical, High or Medium | Implemented |
 
-Remaining checks from the proposal, in the order they will be attempted:
-risky GPO settings, domain trust relationships, LAPS deployment. LAPS is
-scheduled last and is the first to be cut if the schedule does not allow it.
+Remaining checks from the proposal: domain trust relationships, then LAPS
+deployment. LAPS is scheduled last and is the first to be cut if the
+schedule does not allow it. The trust check will find nothing in the current
+lab, which is a single domain with no trusts, so it is worth pairing with
+the second lab domain planned for the portability test.
 
 Kerberoasting and unconstrained delegation were taken first because both are
 named in the CISA, NSA and ASD joint advisory on Active Directory
@@ -106,13 +109,15 @@ ADSecurityAudit/
       Test-ExcessiveAdminMembership.ps1
       Test-KerberoastableAccount.ps1
       Test-UnconstrainedDelegation.ps1
+      Test-RiskyGroupPolicy.ps1
   Tests/
     verify-stale-check.ps1      32 assertions
     verify-admin-check.ps1      28 assertions
     verify-kerberoast-check.ps1 50 assertions
     verify-delegation-check.ps1 96 assertions
+    verify-gpo-check.ps1        58 assertions
     verify-aggregator.ps1       25 assertions
-    verify-lab-seeding.ps1      36 assertions, over ..\..\Lab
+    verify-lab-seeding.ps1      52 assertions, over ..\..\Lab
 ```
 
 ## Testing
@@ -123,6 +128,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\Tests\verify-admin-check.ps1
 .\Tests\verify-kerberoast-check.ps1
 .\Tests\verify-delegation-check.ps1
+.\Tests\verify-gpo-check.ps1
 .\Tests\verify-aggregator.ps1
 .\Tests\verify-lab-seeding.ps1
 ```
@@ -164,6 +170,12 @@ that a check written against one English-language lab appears to get right:
 - Property lists are per cmdlet. `operatingSystem` and `dNSHostName` belong
   to the computer class, and asking `Get-ADUser` for them risks an
   invalid-property error that would fail the whole check on every domain.
+
+`verify-gpo-check.ps1` is the one test that does not stub a filesystem. The
+group policy check takes its policy store as a parameter, so each case
+builds a real directory of real policy files in a temporary folder and lets
+the check read them. Parsing is the part most likely to be wrong, and a
+mocked filesystem would not exercise it.
 
 `verify-lab-seeding.ps1` covers the seeding script rather than the module. It
 runs the real script against a directory held in memory and checks that
@@ -223,6 +235,15 @@ proposal.
 **Walk membership manually.** `Get-ADGroupMember -Recursive` flattens nesting
 and discards the chain the privilege arrived through, and without that chain
 an administrator cannot tell which group to edit.
+
+**Read group policy from SYSVOL, not through the GroupPolicy module.**
+`Get-GPO` and `Get-GPOReport` would need a second RSAT feature on the
+auditing workstation, and the installation story is already two runtimes
+long. The policy files are on a share every domain member reads anyway,
+which also keeps the check honest about the privilege it runs with: anything
+it can see, any domain user can see. The seeding script does use
+`New-GPO`, because it runs on a domain controller where that module is
+present, and it skips the section with an explanation when it is not.
 
 **Write JSON without a byte order mark.** PowerShell 5.1's
 `Set-Content -Encoding UTF8` writes one, and Node's `JSON.parse` rejects it,

@@ -582,6 +582,128 @@ $groundTruth.expected['AD.PRIVILEGE.UNCONSTRAINED_DELEGATION'] = [ordered]@{
 }
 
 # ---------------------------------------------------------------------------
+# 6. Risky group policy
+#
+# Two policies, neither of them linked to anything. Linking them would push
+# these settings onto the lab's own machines, and the check reads what a
+# policy says rather than where it applies, so leaving them unlinked seeds
+# the finding without changing how the lab behaves.
+#
+#   Lab Legacy Preferences   a Group Policy Preferences file with a
+#                            cpassword attribute, the MS14-025 problem
+#   Lab Workstation Rights   SeDebugPrivilege granted to Authenticated Users,
+#                            and the guest account switched on
+#
+# This section needs the GroupPolicy module, which a domain controller has by
+# default. The auditing module deliberately does not: it reads the same files
+# straight from SYSVOL, with nothing but the read access every domain member
+# already has.
+# ---------------------------------------------------------------------------
+
+$gpoSeeded = [System.Collections.Generic.List[string]]::new()
+
+if (-not (Get-Command -Name New-GPO -ErrorAction SilentlyContinue)) {
+    Write-Warning @'
+The GroupPolicy module is not available, so the risky group policy fixtures
+were not seeded. Run this section on a domain controller, or install the
+Group Policy Management feature:
+
+    Install-WindowsFeature -Name GPMC
+
+The ADSecurityAudit module itself does not need this. Only the seeding does.
+'@
+}
+else {
+    function New-LabGpo {
+        param([Parameter(Mandatory)] [string] $Name, [Parameter(Mandatory)] [string] $Comment)
+
+        $existing = Get-GPO -Name $Name -ErrorAction SilentlyContinue
+        if ($existing) {
+            Write-Verbose "$Name already exists"
+            return $existing
+        }
+        if (-not $PSCmdlet.ShouldProcess($Name, 'Create group policy object')) { return $null }
+        return (New-GPO -Name $Name -Comment $Comment)
+    }
+
+    function Write-LabPolicyFile {
+        param(
+            [Parameter(Mandatory)] $Gpo,
+            [Parameter(Mandatory)] [string] $RelativePath,
+            [Parameter(Mandatory)] [string] $Content
+        )
+
+        # The GPO's own folder under SYSVOL, read from the object rather than
+        # assembled by hand, so a renamed domain or a non-default SYSVOL path
+        # does not silently put these files somewhere nothing reads them.
+        $root = "\\$($domain.DNSRoot)\SYSVOL\$($domain.DNSRoot)\Policies\{$($Gpo.Id)}"
+
+        # Joined as strings rather than with Join-Path and Split-Path. Both
+        # resolve a UNC path through the provider, which needs a drive and
+        # therefore only works on Windows, and that would make this section
+        # untestable anywhere else. The separator is a backslash either way,
+        # because the destination is always a Windows share.
+        $full   = "$root\$RelativePath"
+        $parent = $full.Substring(0, $full.LastIndexOf('\'))
+
+        if (-not $PSCmdlet.ShouldProcess($full, 'Write policy file')) { return }
+        if (-not (Test-Path -LiteralPath $parent)) {
+            New-Item -ItemType Directory -Path $parent -Force -ErrorAction Stop | Out-Null
+        }
+        Set-Content -LiteralPath $full -Value $Content -Encoding UTF8 -ErrorAction Stop
+        Write-Verbose "Wrote $full"
+    }
+
+    $prefsGpo = New-LabGpo -Name 'Lab Legacy Preferences' -Comment 'Lab: stores a password in SYSVOL'
+    if ($prefsGpo) {
+        # The cpassword below is a placeholder, not real ciphertext. The
+        # check looks for the attribute being present and non-empty and
+        # never decrypts it, so seeding a decryptable password would add a
+        # real recoverable secret to the repository and prove nothing extra.
+        Write-LabPolicyFile -Gpo $prefsGpo -RelativePath 'Machine\Preferences\Groups\Groups.xml' -Content @'
+<?xml version="1.0" encoding="utf-8"?>
+<Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
+  <User clsid="{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}" name="lab_local_admin"
+        image="2" changed="2026-01-01 00:00:00" uid="{A1B2C3D4-0000-0000-0000-000000000001}">
+    <Properties action="U" newName="" fullName="Lab local administrator" description=""
+                cpassword="LAB-PLACEHOLDER-NOT-REAL-CIPHERTEXT" changeLogon="0"
+                noChange="1" neverExpires="1" acctDisabled="0" userName="lab_local_admin"/>
+  </User>
+</Groups>
+'@
+        $gpoSeeded.Add('Lab Legacy Preferences')
+    }
+
+    $rightsGpo = New-LabGpo -Name 'Lab Workstation Rights' -Comment 'Lab: dangerous privilege granted broadly'
+    if ($rightsGpo) {
+        Write-LabPolicyFile -Gpo $rightsGpo -RelativePath 'Machine\Microsoft\Windows NT\SecEdit\GptTmpl.inf' -Content @'
+[Unicode]
+Unicode=yes
+[Version]
+signature="$CHICAGO$"
+Revision=1
+[System Access]
+EnableGuestAccount = 1
+[Privilege Rights]
+SeDebugPrivilege = *S-1-5-11
+SeImpersonatePrivilege = *S-1-5-11,*S-1-5-32-544
+SeBackupPrivilege = *S-1-5-32-544
+'@
+        $gpoSeeded.Add('Lab Workstation Rights')
+    }
+}
+
+$groundTruth.expected['AD.POLICY.RISKY_GPO'] = [ordered]@{
+    shouldDetect     = ($gpoSeeded.Count -gt 0)
+    objects          = $gpoSeeded.ToArray()
+    expectedSeverity = 'Critical'
+    note             = 'Lab Legacy Preferences stores a cpassword, which is Critical on its own. Lab Workstation Rights grants SeDebugPrivilege and SeImpersonatePrivilege to Authenticated Users and switches on the guest account, which is 3 further issues. SeBackupPrivilege is granted only to Administrators and must not be reported.'
+    expectedIssues   = 4
+    mustNotDetect    = @('SeBackupPrivilege')
+    notSeeded        = 'Neither policy is linked to an organizational unit, so nothing in the lab applies these settings. The check reads policy contents rather than scope, which is recorded as a limitation on the finding.'
+}
+
+# ---------------------------------------------------------------------------
 
 if ($PSCmdlet.ShouldProcess($GroundTruthPath, 'Write ground truth')) {
     $groundTruth | ConvertTo-Json -Depth 10 | Set-Content -Path $GroundTruthPath -Encoding UTF8
