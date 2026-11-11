@@ -99,9 +99,18 @@ function Test-UnconstrainedDelegation {
     return
 }
 
+$script:gpoBehaviour = 'nothing'
 function Test-RiskyGroupPolicy {
     param($DomainName, $SysvolPath)
-    return
+    if ($script:gpoBehaviour -eq 'nothing') { return }
+
+    # A finding and more than one marker from the same check, which is what
+    # the group policy check produces when some policy folders could not be
+    # opened and some files inside readable ones could not be parsed.
+    New-AuditFinding -CheckId 'AD.POLICY.RISKY_GPO' -Severity 'Critical' -DomainName $DomainName `
+        -AffectedObjects @() -Evidence @{ summary = 'stub' }
+    New-AuditPartialResult -CheckId 'AD.POLICY.RISKY_GPO' -Reason '1 of 2 policy folder(s) could not be opened.'
+    New-AuditPartialResult -CheckId 'AD.POLICY.RISKY_GPO' -Reason '2 XML file(s) could not be parsed.'
 }
 
 $outFile = Join-Path ([System.IO.Path]::GetTempPath()) "aggregator-test-$([guid]::NewGuid()).json"
@@ -162,6 +171,25 @@ A ($ids -contains 'AD.PRIVILEGE.EXCESSIVE_ADMIN_MEMBERSHIP') 'the truncated chec
 $written = Get-Content -LiteralPath $outFile -Raw | ConvertFrom-Json
 A ($null -ne $written.scan.checksPartial)            'checksPartial survives the JSON round trip'
 A ($written.scan.checksPartial[0].reason -match 'beyond 2 levels') 'with its reason intact'
+
+# ---------------------------------------------------------------------------
+"`nSeveral partial results from one check"
+# The group policy check can abandon ground in two different ways in the
+# same run, and each gets its own marker. The aggregator must keep both
+# rather than collapsing them, because they ask the reader to fix different
+# things.
+$script:adminBehaviour = 'finding'
+$script:gpoBehaviour   = 'both'
+$r = Run
+$gpoPartials = @($r.scan.checksPartial | Where-Object { $_.checkId -eq 'AD.POLICY.RISKY_GPO' })
+A ($gpoPartials.Count -eq 2)                         'both markers are recorded'
+A (($gpoPartials.reason -join ' ') -match 'could not be opened') 'the folder one survives'
+A (($gpoPartials.reason -join ' ') -match 'could not be parsed') 'and the file one'
+A ($r.scan.checksCompleted -contains 'AD.POLICY.RISKY_GPO') 'the check still counts as completed'
+A (-not ($r.scan.checksFailed.checkId -contains 'AD.POLICY.RISKY_GPO')) 'and not as failed'
+A (@($r.findings | Where-Object { $_.checkId -eq 'AD.POLICY.RISKY_GPO' }).Count -eq 1) 'its finding is kept alongside the markers'
+A (@($r.findings | Where-Object { $_.PSObject.Properties.Name -contains 'reason' }).Count -eq 0) 'and no marker leaked into findings'
+$script:gpoBehaviour = 'nothing'
 
 # ---------------------------------------------------------------------------
 "`nPer-check parameters still reach the check"

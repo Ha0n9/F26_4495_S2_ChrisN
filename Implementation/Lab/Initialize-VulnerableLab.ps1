@@ -654,22 +654,55 @@ else {
         Write-Verbose "Wrote $full"
     }
 
+    function New-LabCipherTextShape {
+        <#
+            A value with the shape of Group Policy Preferences ciphertext:
+            Base64 of a whole number of 16 byte AES blocks, written without
+            padding as GPP writes it.
+
+            It is random bytes, not an encrypted password, so nothing can be
+            recovered from it and nothing recoverable is stored in the
+            repository or in the lab. The check validates the format and
+            never decrypts, so this exercises the path it actually takes.
+        #>
+        param([int] $Blocks = 4)
+
+        $bytes = [byte[]]::new($Blocks * 16)
+        $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+        return ([Convert]::ToBase64String($bytes)).TrimEnd('=')
+    }
+
     $prefsGpo = New-LabGpo -Name 'Lab Legacy Preferences' -Comment 'Lab: stores a password in SYSVOL'
     if ($prefsGpo) {
-        # The cpassword below is a placeholder, not real ciphertext. The
-        # check looks for the attribute being present and non-empty and
-        # never decrypts it, so seeding a decryptable password would add a
-        # real recoverable secret to the repository and prove nothing extra.
-        Write-LabPolicyFile -Gpo $prefsGpo -RelativePath 'Machine\Preferences\Groups\Groups.xml' -Content @'
+        # Two preference files, one per branch of the check. Groups.xml
+        # carries a value shaped like real ciphertext, which the check
+        # reports as a recoverable password. Drives.xml carries one that is
+        # not, which it reports without that claim. Seeding only the first
+        # would leave the weaker branch untested against a real directory.
+        $labCipherText = New-LabCipherTextShape
+
+        Write-LabPolicyFile -Gpo $prefsGpo -RelativePath 'Machine\Preferences\Groups\Groups.xml' -Content @"
 <?xml version="1.0" encoding="utf-8"?>
 <Groups clsid="{3125E937-EB16-4b4c-9934-544FC6D24D26}">
   <User clsid="{DF5F1855-51E5-4d24-8B1A-D9BDE98BA1D1}" name="lab_local_admin"
         image="2" changed="2026-01-01 00:00:00" uid="{A1B2C3D4-0000-0000-0000-000000000001}">
     <Properties action="U" newName="" fullName="Lab local administrator" description=""
-                cpassword="LAB-PLACEHOLDER-NOT-REAL-CIPHERTEXT" changeLogon="0"
+                cpassword="$labCipherText" changeLogon="0"
                 noChange="1" neverExpires="1" acctDisabled="0" userName="lab_local_admin"/>
   </User>
 </Groups>
+"@
+
+        Write-LabPolicyFile -Gpo $prefsGpo -RelativePath 'Machine\Preferences\Drives\Drives.xml' -Content @'
+<?xml version="1.0" encoding="utf-8"?>
+<Drives clsid="{8FDDCC1A-0C3C-43cd-A6B4-71A6DF20DA8C}">
+  <Drive clsid="{935D1B74-9CB8-4e3c-9914-7DD559B7A417}" name="S:"
+         uid="{A1B2C3D4-0000-0000-0000-000000000002}">
+    <Properties action="U" letter="S" path="\\files01\share" userName="lab_mapper"
+                cpassword="NOT-CIPHERTEXT" persistent="1"/>
+  </Drive>
+</Drives>
 '@
         $gpoSeeded.Add('Lab Legacy Preferences')
     }
@@ -697,8 +730,11 @@ $groundTruth.expected['AD.POLICY.RISKY_GPO'] = [ordered]@{
     shouldDetect     = ($gpoSeeded.Count -gt 0)
     objects          = $gpoSeeded.ToArray()
     expectedSeverity = 'Critical'
-    note             = 'Lab Legacy Preferences stores a cpassword, which is Critical on its own. Lab Workstation Rights grants SeDebugPrivilege and SeImpersonatePrivilege to Authenticated Users and switches on the guest account, which is 3 further issues. SeBackupPrivilege is granted only to Administrators and must not be reported.'
-    expectedIssues   = 4
+    note             = 'Lab Legacy Preferences carries two cpassword attributes: Groups.xml holds a value shaped like Group Policy Preferences ciphertext, reported as a recoverable password, and Drives.xml holds one that is not, reported without that claim. Lab Workstation Rights grants SeDebugPrivilege and SeImpersonatePrivilege to Authenticated Users and switches on the guest account, which is 3 further issues. SeBackupPrivilege is granted only to Administrators and must not be reported.'
+    expectedIssues   = 5
+    expectedStoredPasswordCount      = 1
+    expectedUnverifiedCpasswordCount = 1
+    cpasswordNote    = 'Neither value is an encrypted password. The one in Groups.xml is random bytes with the right format, generated fresh on each run, because the check validates the format and never decrypts. No recoverable credential is stored in the lab or in the repository.'
     mustNotDetect    = @('SeBackupPrivilege')
     notSeeded        = 'Neither policy is linked to an organizational unit, so nothing in the lab applies these settings. The check reads policy contents rather than scope, which is recorded as a limitation on the finding.'
 }

@@ -115,9 +115,9 @@ ADSecurityAudit/
     verify-admin-check.ps1      28 assertions
     verify-kerberoast-check.ps1 50 assertions
     verify-delegation-check.ps1 96 assertions
-    verify-gpo-check.ps1        58 assertions
-    verify-aggregator.ps1       25 assertions
-    verify-lab-seeding.ps1      52 assertions, over ..\..\Lab
+    verify-gpo-check.ps1       185 assertions
+    verify-aggregator.ps1       32 assertions
+    verify-lab-seeding.ps1      56 assertions, over ..\..\Lab
 ```
 
 ## Testing
@@ -235,6 +235,34 @@ proposal.
 **Walk membership manually.** `Get-ADGroupMember -Recursive` flattens nesting
 and discards the chain the privilege arrived through, and without that chain
 an administrator cannot tell which group to edit.
+
+**Only folders named for a GPO GUID are policies.** The Policies directory
+also holds `PolicyDefinitions`, the ADMX Central Store, which is not a
+policy object and whose thousands of files are neither worth reading nor
+meaningful to report. Anything else found there is named in the evidence
+rather than passed over silently, so a folder the pattern wrongly rejects
+is visible.
+
+**A cpassword is checked for the shape of ciphertext before the finding
+claims it can be decrypted.** Real Group Policy Preferences values are
+Base64 of whole 16 byte AES blocks. A value that does not decode that way is
+still reported, because nothing should be writing a cpassword at all, but at
+High rather than Critical and without the claim that a password can be
+recovered from it. The tool never decrypts, so it never holds a plaintext
+password it would then have to protect, and neither the encrypted value nor
+any plaintext appears in the finding.
+
+**Unreadable folders and unreadable files are different units.** A folder
+that cannot be opened is a policy nobody examined; a file that cannot be
+read inside a readable folder leaves the rest of that policy examined. An
+earlier version added them together and could report a negative number of
+examined policies. They now have separate counters and separate partial
+result messages.
+
+**XML is parsed as XML.** An attribute may be single or double quoted and
+both are valid, so a regular expression that knows only one silently misses
+the other. A file that will not parse is reported as unexamined rather than
+as clean.
 
 **Read group policy from SYSVOL, not through the GroupPolicy module.**
 `Get-GPO` and `Get-GPOReport` would need a second RSAT feature on the

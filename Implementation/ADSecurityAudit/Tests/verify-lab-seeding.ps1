@@ -435,11 +435,15 @@ $result = Invoke-Lab
 A (($global:LabProbe.Writes | Where-Object { $_ -eq 'New-GPO:Lab Legacy Preferences' }).Count -eq 1) 'create the preferences policy when the module is there'
 A (($global:LabProbe.Writes | Where-Object { $_ -eq 'New-GPO:Lab Workstation Rights' }).Count -eq 1) 'and the rights policy'
 A ($global:LabProbe.Writes -contains 'PolicyFile:Groups.xml')  'writing the preferences file into SYSVOL'
+A ($global:LabProbe.Writes -contains 'PolicyFile:Drives.xml')  'and the one whose value is not ciphertext'
 A ($global:LabProbe.Writes -contains 'PolicyFile:GptTmpl.inf') 'and the security settings file'
 $gpo = $result.Truth.expected.'AD.POLICY.RISKY_GPO'
 A ($gpo.shouldDetect -eq $true)                          'ground truth expects a detection'
 A (@($gpo.objects).Count -eq 2)                          'and names both policies'
-A ($gpo.expectedIssues -eq 4)                            'recording how many issues they add up to'
+A ($gpo.expectedIssues -eq 5)                            'recording how many issues they add up to'
+A ($gpo.expectedStoredPasswordCount -eq 1)               'one of which is a recognised stored password'
+A ($gpo.expectedUnverifiedCpasswordCount -eq 1)          'and one a cpassword whose format was not recognised'
+A ($gpo.cpasswordNote -match 'never decrypts')           'and the file says neither value is a real credential'
 A ($gpo.mustNotDetect -contains 'SeBackupPrivilege')     'and which setting must not be reported'
 
 $creationsBefore = @($global:LabProbe.Writes | Where-Object { $_ -like 'New-GPO:*' }).Count
