@@ -99,6 +99,11 @@ function Test-UnconstrainedDelegation {
     return
 }
 
+function Test-RiskyTrust {
+    param($DomainName, $ExcludedTrustTargets)
+    return
+}
+
 $script:gpoBehaviour = 'nothing'
 function Test-RiskyGroupPolicy {
     param($DomainName, $SysvolPath)
@@ -125,8 +130,8 @@ function Run {
 $script:adminBehaviour = 'finding'
 $script:staleBehaviour = 'finding'
 $r = Run
-A ($r.scan.checksRequested.Count -eq 6)              'requests every registered check'
-A ($r.scan.checksCompleted.Count -eq 6)              'all six complete'
+A ($r.scan.checksRequested.Count -eq 7)              'requests every registered check'
+A ($r.scan.checksCompleted.Count -eq 7)              'all seven complete'
 A (@($r.scan.checksFailed).Count -eq 0)              'nothing failed'
 A (@($r.scan.checksPartial).Count -eq 0)             'nothing partial'
 A ($r.findings.Count -eq 3)                          'collects the findings'
@@ -140,7 +145,7 @@ A (@($r.scan.checksFailed).Count -eq 1)              'the failure is recorded'
 A ($r.scan.checksFailed[0].checkId -ceq 'AD.ACCOUNT.STALE_ENABLED') 'with its check id'
 A ($r.scan.checksFailed[0].errorMessage -match 'denied') 'and its message'
 A (-not ($r.scan.checksCompleted -contains 'AD.ACCOUNT.STALE_ENABLED')) 'and is not also completed'
-A ($r.scan.checksCompleted.Count -eq 5)              'the other checks still ran'
+A ($r.scan.checksCompleted.Count -eq 6)              'the other checks still ran'
 $script:staleBehaviour = 'finding'
 
 # ---------------------------------------------------------------------------

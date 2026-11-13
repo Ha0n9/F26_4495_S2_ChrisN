@@ -72,6 +72,7 @@ function Invoke-ADSecurityAudit {
         'AD.PRIVILEGE.KERBEROASTING'              = 'Test-KerberoastableAccount'
         'AD.PRIVILEGE.UNCONSTRAINED_DELEGATION'   = 'Test-UnconstrainedDelegation'
         'AD.POLICY.RISKY_GPO'                     = 'Test-RiskyGroupPolicy'
+        'AD.TRUST.RISKY_TRUST'                    = 'Test-RiskyTrust'
     }
 
     $requested = if ($CheckId) {

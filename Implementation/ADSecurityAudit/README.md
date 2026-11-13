@@ -6,10 +6,10 @@ to render.
 
 ## Status
 
-Six checks are implemented. The first three have been run against a live
+Seven checks are implemented. The first three have been run against a live
 domain (`auditlab.test`) from an ordinary domain user account. The two
-delegation-related checks and the group policy check have been verified
-against stubs and fixtures, and are waiting on a lab run.
+delegation-related checks, the group policy check and the trust check have
+been verified against stubs and fixtures, and are waiting on a lab run.
 
 | Check | Id | Severity | Status |
 |---|---|---|---|
@@ -19,12 +19,18 @@ against stubs and fixtures, and are waiting on a lab run.
 | Kerberoastable service accounts | `AD.PRIVILEGE.KERBEROASTING` | Critical, High or Medium | Implemented |
 | Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Critical or High | Implemented |
 | Risky group policy settings | `AD.POLICY.RISKY_GPO` | Critical, High or Medium | Implemented |
+| Risky domain or forest trusts | `AD.TRUST.RISKY_TRUST` | Critical, High or Medium | Implemented |
 
-Remaining checks from the proposal: domain trust relationships, then LAPS
-deployment. LAPS is scheduled last and is the first to be cut if the
-schedule does not allow it. The trust check will find nothing in the current
-lab, which is a single domain with no trusts, so it is worth pairing with
-the second lab domain planned for the portability test.
+One check from the proposal is left: LAPS deployment. It is scheduled last
+and is the first to be cut if the schedule does not allow it.
+
+The trust check carries a gap worth stating plainly. The current lab is a
+single domain with no trusts, so a lab run exercises only the path where the
+check reads the directory and correctly reports nothing. Every judgement it
+makes is covered by `Tests/verify-trust-check.ps1` against a stubbed
+`Get-ADTrust`, and nothing more than that has been demonstrated. Closing the
+gap needs the second lab domain planned for the portability test, and until
+then the check should not be described as lab-verified.
 
 Kerberoasting and unconstrained delegation were taken first because both are
 named in the CISA, NSA and ASD joint advisory on Active Directory
@@ -110,14 +116,16 @@ ADSecurityAudit/
       Test-KerberoastableAccount.ps1
       Test-UnconstrainedDelegation.ps1
       Test-RiskyGroupPolicy.ps1
+      Test-RiskyTrust.ps1
   Tests/
     verify-stale-check.ps1      32 assertions
-    verify-admin-check.ps1      28 assertions
+    verify-admin-check.ps1      40 assertions
     verify-kerberoast-check.ps1 50 assertions
     verify-delegation-check.ps1 96 assertions
     verify-gpo-check.ps1       185 assertions
+    verify-trust-check.ps1      74 assertions
     verify-aggregator.ps1       32 assertions
-    verify-lab-seeding.ps1      56 assertions, over ..\..\Lab
+    verify-lab-seeding.ps1      62 assertions, over ..\..\Lab
 ```
 
 ## Testing
@@ -129,6 +137,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\Tests\verify-kerberoast-check.ps1
 .\Tests\verify-delegation-check.ps1
 .\Tests\verify-gpo-check.ps1
+.\Tests\verify-trust-check.ps1
 .\Tests\verify-aggregator.ps1
 .\Tests\verify-lab-seeding.ps1
 ```
@@ -170,6 +179,16 @@ that a check written against one English-language lab appears to get right:
 - Property lists are per cmdlet. `operatingSystem` and `dNSHostName` belong
   to the computer class, and asking `Get-ADUser` for them risks an
   invalid-property error that would fail the whole check on every domain.
+- Trusts are judged from the `TrustAttributes` bitmask, and a convenience
+  property that disagrees with it does not win. A test sets the two against
+  each other to prove which one is read.
+- A trust inside this forest is skipped, recognised either by the
+  `WITHIN_FOREST` bit or by the `IntraForest` property. Without that, every
+  multi-domain forest would open with a Critical finding that is correct by
+  design and cannot be fixed.
+- The direction of a trust is written onto the affected object and never used
+  to grade it. A test runs the same trust inbound, outbound and both ways and
+  asserts the severity does not move.
 
 `verify-gpo-check.ps1` is the one test that does not stub a filesystem. The
 group policy check takes its policy store as a parameter, so each case

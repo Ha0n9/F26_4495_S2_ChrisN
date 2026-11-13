@@ -458,6 +458,21 @@ A (-not ($global:LabProbe.Writes -like 'PolicyFile:*'))  'and writes no policy f
 Disable-GpoStubs
 
 # ---------------------------------------------------------------------------
+"`nThe trust check, which this lab cannot seed"
+# Recorded rather than left out. A check with no ground-truth entry cannot be
+# told apart from a check that ran and found nothing, and the difference
+# decides whether an empty result counts as correct or as untested.
+Reset-Directory
+$result = Invoke-Lab
+$trust = $result.Truth.expected.'AD.TRUST.RISKY_TRUST'
+A ($null -ne $trust)                                     'still has an entry in ground truth'
+A ($trust.shouldDetect -eq $false)                       'which says the correct result is no finding'
+A (@($trust.objects).Count -eq 0)                        'and names nothing'
+A ($trust.notSeeded -match 'second domain in a second forest') 'with the reason it could not be seeded'
+A ($trust.notSeeded -match 'verify-trust-check')         'and where the behaviour is covered instead'
+A (-not ($global:LabProbe.Writes -like '*Trust*'))       'and the script creates no trust'
+
+# ---------------------------------------------------------------------------
 "`nNo secret is written to ground truth"
 Reset-Directory
 $result = Invoke-Lab

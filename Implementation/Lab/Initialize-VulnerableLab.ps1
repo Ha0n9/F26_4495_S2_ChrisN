@@ -740,6 +740,27 @@ $groundTruth.expected['AD.POLICY.RISKY_GPO'] = [ordered]@{
 }
 
 # ---------------------------------------------------------------------------
+# Trusts. Nothing is seeded, and the entry exists to say so.
+#
+# A trust needs a second domain in a second forest, which this lab does not
+# have and which this script cannot create, because a forest is built by
+# promoting a domain controller rather than by writing directory objects. The
+# entry is still recorded, because a check with no ground-truth entry at all
+# cannot be told apart from a check that ran and found nothing, and the
+# difference matters when detection accuracy is being measured: a correct
+# empty result here must count as correct, not as an untested check quietly
+# passing.
+# ---------------------------------------------------------------------------
+
+$groundTruth.expected['AD.TRUST.RISKY_TRUST'] = [ordered]@{
+    shouldDetect     = $false
+    objects          = @()
+    expectedSeverity = $null
+    note             = 'This lab is a single domain in a single forest with no trusts, so the correct result for this check is no finding at all. A result with no trust finding is a pass. A result containing one means either that a trust was added to the lab outside this script, or that the check is reporting something it should not.'
+    notSeeded        = 'A trust requires a second domain in a second forest. Promoting a second domain controller is outside what this script does, so the risky settings this check looks for are covered by Tests/verify-trust-check.ps1 against a stubbed Get-ADTrust rather than by the lab. The gap is real and is recorded here rather than left implicit.'
+}
+
+# ---------------------------------------------------------------------------
 
 if ($PSCmdlet.ShouldProcess($GroundTruthPath, 'Write ground truth')) {
     $groundTruth | ConvertTo-Json -Depth 10 | Set-Content -Path $GroundTruthPath -Encoding UTF8

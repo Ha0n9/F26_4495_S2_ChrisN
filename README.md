@@ -18,7 +18,7 @@ viewing the results.
 
 ## Current state
 
-Six detection checks are implemented and run end to end, with the scan
+Seven detection checks are implemented and run end to end, with the scan
 started from the dashboard itself.
 
 | Check | Id | State |
@@ -29,7 +29,7 @@ started from the dashboard itself.
 | Kerberoasting exposure | `AD.PRIVILEGE.KERBEROASTING` | Implemented |
 | Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Implemented |
 | Risky group policy settings | `AD.POLICY.RISKY_GPO` | Implemented |
-| Domain trust relationships | `AD.TRUST.RISKY_TRUST` | Planned |
+| Risky domain or forest trusts | `AD.TRUST.RISKY_TRUST` | Implemented, not yet exercised in the lab |
 | LAPS deployment | `AD.ACCOUNT.LAPS_MISSING` | Planned |
 
 ## Repository layout

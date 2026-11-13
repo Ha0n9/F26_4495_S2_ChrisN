@@ -93,9 +93,9 @@
       "whatToDo": [
         "Find out what the service actually does before changing anything. Delegation is switched on so that a service can pass a user's identity on to a second service, for example a web application reaching a database as the person using it. Turning it off will break that, so confirm what depends on it first and plan the change with whoever owns the service.",
         "Prefer narrowing it to constrained delegation over removing it outright. Constrained delegation lets the account act for a user against a named list of services and nothing else, which usually keeps the application working while closing the exposure.",
-        "For a computer account, or an ordinary user or service account: open the account in Active Directory Users and Computers and go to the Delegation tab. Choose “Trust this computer for delegation to specified services only” and list those services, or “Do not trust this computer for delegation” if it turns out none are needed. On a user account the tab only appears once the account has a service name registered.",
+        "For a computer account, or an ordinary user or service account: open the account in Active Directory Users and Computers and go to the Delegation tab. Choose \u201cTrust this computer for delegation to specified services only\u201d and list those services, or \u201cDo not trust this computer for delegation\u201d if it turns out none are needed. On a user account the tab only appears once the account has a service name registered.",
         "For a managed service account or a group managed service account there is no Delegation tab, so use PowerShell. To remove it: Set-ADAccountControl -Identity 'name$' -TrustedForDelegation $false. To move to constrained delegation instead: Set-ADServiceAccount -Identity 'name$' -Add @{'msDS-AllowedToDelegateTo' = 'CIFS/server.example.com'}. Remember the trailing dollar sign in the name.",
-        "Protect your administrators separately, so that a machine like this cannot replay their tickets even while it is being fixed. Add them to the Protected Users group, or tick “Account is sensitive and cannot be delegated” on each administrative account.",
+        "Protect your administrators separately, so that a machine like this cannot replay their tickets even while it is being fixed. Add them to the Protected Users group, or tick \u201cAccount is sensitive and cannot be delegated\u201d on each administrative account.",
         "Until it is resolved, treat each of these as being as trusted as the most privileged person who signs in to it, and keep administrators off them."
       ],
       "objectColumnLabel": "Machine or account",
@@ -185,6 +185,44 @@
         {
           "label": "Microsoft: User rights assignment",
           "url": "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-10/security/threat-protection/security-policy-settings/user-rights-assignment"
+        }
+      ]
+    },
+    "AD.TRUST.RISKY_TRUST": {
+      "technicalName": "Risky domain or forest trust configuration",
+      "title": "A trust with another organization lets it reach further in than it should",
+      "category": "Trust configuration",
+      "defaultSeverity": "Critical",
+      "whyItMatters": "A trust is a decision to accept sign-ins from a directory you do not run. That is often necessary and is not a problem by itself. What matters is how far the other side can reach once it is trusted, and that is decided by a few settings that are easy to get wrong and invisible unless somebody looks. The most serious is SID filtering. With it in place, your domain controller throws away any claim of group membership that arrives from the other side. Without it, whoever runs the trusted domain can simply assert that they belong to your Domain Admins group and be believed. They do not have to break into anything here. The Issue column below says which setting each row is about, and the Detail column says what it means in practice. The rest are smaller: a forest trust marked to be treated as external lowers the filtering across the whole boundary, ticket delegation left open across a forest trust is what lets a delegation problem on either side reach the other, RC4 is far weaker than the encryption available, and selective authentication left off means accounts from the other side are treated as ordinary authenticated users here instead of being allowed only on the servers you nominate.",
+      "whatToDo": [
+        "Start with the trust itself rather than the setting. Find out who asked for it, what still depends on it, and whether the relationship is current. A trust nobody can account for should be removed, not repaired.",
+        "For SID filtering, remember that the other side's security is now your security. Before you decide this is acceptable, ask how that domain is administered and who there could abuse it.",
+        "Turn filtering on with netdom trust, using /quarantine:yes for an external trust or /enablesidhistory:no for a forest trust. Test it first: if anybody was migrated between the two domains and still relies on their old identity, turning filtering on will break their access, which is the usual reason it was turned off.",
+        "If a forest trust is marked to be treated as external, find out whether the migration that caused it ever finished. If it did, remove the attribute.",
+        "Block ticket delegation across a forest trust unless something specifically needs it, and read the unconstrained delegation finding alongside this one, because the two together are what make a cross-forest attack possible.",
+        "Move the trust off RC4 once both sides support AES, and test it outside business hours, because a mismatch here stops authentication across the trust entirely.",
+        "Turn selective authentication on where the other side only needs a small number of your servers, then grant the Allowed to Authenticate right on exactly those servers.",
+        "Check the direction yourself. This tool records whether each trust is inbound, outbound or both, but it does not judge it, because which direction exposes you depends on how the trust was created and on what the other side's administrators can do, and a scan from here cannot see either."
+      ],
+      "objectColumnLabel": "Trust",
+      "keyAttributes": [
+        "issue",
+        "trustKind",
+        "direction",
+        "detail"
+      ],
+      "references": [
+        {
+          "label": "Microsoft: Securing domain and forest trusts",
+          "url": "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2008-r2-and-2008/cc794713(v=ws.10)"
+        },
+        {
+          "label": "Microsoft: When to create an external trust, including SID filter quarantining and the netdom syntax",
+          "url": "https://learn.microsoft.com/en-us/previous-versions/windows/it-pro/windows-server-2003/cc755427(v=ws.10)"
+        },
+        {
+          "label": "Joint advisory: Detecting and mitigating Active Directory compromises",
+          "url": "https://www.cisa.gov/resources-tools/resources/detecting-and-mitigating-active-directory-compromises"
         }
       ]
     }
