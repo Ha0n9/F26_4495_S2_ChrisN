@@ -73,6 +73,7 @@ function Invoke-ADSecurityAudit {
         'AD.PRIVILEGE.UNCONSTRAINED_DELEGATION'   = 'Test-UnconstrainedDelegation'
         'AD.POLICY.RISKY_GPO'                     = 'Test-RiskyGroupPolicy'
         'AD.TRUST.RISKY_TRUST'                    = 'Test-RiskyTrust'
+        'AD.ACCOUNT.LAPS_MISSING'                 = 'Test-LapsDeployment'
     }
 
     $requested = if ($CheckId) {

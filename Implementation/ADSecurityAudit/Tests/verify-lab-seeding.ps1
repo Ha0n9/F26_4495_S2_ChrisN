@@ -473,6 +473,24 @@ A ($trust.notSeeded -match 'verify-trust-check')         'and where the behaviou
 A (-not ($global:LabProbe.Writes -like '*Trust*'))       'and the script creates no trust'
 
 # ---------------------------------------------------------------------------
+"`nThe LAPS check, where the absence is the fixture"
+# The opposite shape to the trust entry. The lab has no LAPS, and that is one
+# of the states the check reports, so there is a real positive to expect here.
+$laps = $result.Truth.expected.'AD.ACCOUNT.LAPS_MISSING'
+A ($null -ne $laps)                                      'has an entry in ground truth'
+A ($laps.shouldDetect -eq $true)                         'and expects a finding, not silence'
+A ($laps.expectedSeverity -eq 'High')                    'at High'
+A (@($laps.objects).Count -eq 1)                         'naming one object'
+A ($laps.note -match 'the domain itself')                'which the note says is the domain, not a computer'
+A ($laps.note -match 'failed open')                      'and names the failure that would look like a pass'
+A ($laps.notSeeded -match 'Schema Admins')               'with the reason the schema is left alone'
+A ($laps.notSeeded -match 'verify-laps-check')           'and where the other states are covered'
+# Extending the schema is irreversible and forest-wide. A seeding script must
+# not do it, so this asserts the script never tries.
+A (-not ($global:LabProbe.Writes -like '*LapsADSchema*')) 'and the script never extends the schema'
+A (-not ($global:LabProbe.Writes -like '*Laps*'))         'nor touches LAPS at all'
+
+# ---------------------------------------------------------------------------
 "`nNo secret is written to ground truth"
 Reset-Directory
 $result = Invoke-Lab

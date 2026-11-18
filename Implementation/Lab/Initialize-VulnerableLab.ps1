@@ -761,6 +761,30 @@ $groundTruth.expected['AD.TRUST.RISKY_TRUST'] = [ordered]@{
 }
 
 # ---------------------------------------------------------------------------
+# LAPS. Nothing is seeded, and for this check that is the finding.
+#
+# This script does not extend the schema and should not. Update-LapsADSchema
+# needs Schema Admins, the change cannot be undone, and it applies to the
+# whole forest, so a seeding script that performs it would make a permanent
+# forest-wide change in order to set up a test. The lab therefore has no LAPS
+# at all, which is itself one of the states the check reports, and the
+# strongest one: schema not extended, severity High, a single finding that
+# describes the domain rather than listing computers.
+#
+# So unlike the trust check, this one does have something to prove in the lab.
+# The expectation is a real positive, and getting a computer-by-computer
+# finding instead would mean the check misread an unextended schema.
+# ---------------------------------------------------------------------------
+
+$groundTruth.expected['AD.ACCOUNT.LAPS_MISSING'] = [ordered]@{
+    shouldDetect     = $true
+    objects          = @($DomainName)
+    expectedSeverity = 'High'
+    note             = 'The lab has no LAPS, so the correct result is one finding at High severity whose single affected object is the domain itself, with schemaExtended false and computersExamined zero in its evidence. A finding that lists individual computers would mean the check decided the schema was extended when it is not. No finding at all would mean the schema probe failed open, which is the failure this project cares about most.'
+    notSeeded        = 'LAPS is deliberately not installed. Update-LapsADSchema requires Schema Admins, cannot be reversed, and changes the whole forest, so this script does not run it: a seeding script should not make a permanent forest-wide change to create a fixture. The states that need LAPS present (a computer outside the policy, a password out of rotation, both generations side by side during a migration) are covered by Tests/verify-laps-check.ps1 against stubs rather than by the lab.'
+}
+
+# ---------------------------------------------------------------------------
 
 if ($PSCmdlet.ShouldProcess($GroundTruthPath, 'Write ground truth')) {
     $groundTruth | ConvertTo-Json -Depth 10 | Set-Content -Path $GroundTruthPath -Encoding UTF8

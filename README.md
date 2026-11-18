@@ -18,8 +18,8 @@ viewing the results.
 
 ## Current state
 
-Seven detection checks are implemented and run end to end, with the scan
-started from the dashboard itself.
+All eight detection checks from the proposal are implemented and run end to
+end, with the scan started from the dashboard itself.
 
 | Check | Id | State |
 |---|---|---|
@@ -30,7 +30,7 @@ started from the dashboard itself.
 | Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Implemented |
 | Risky group policy settings | `AD.POLICY.RISKY_GPO` | Implemented |
 | Risky domain or forest trusts | `AD.TRUST.RISKY_TRUST` | Implemented, not yet exercised in the lab |
-| LAPS deployment | `AD.ACCOUNT.LAPS_MISSING` | Planned |
+| Local administrator passwords not managed by LAPS | `AD.ACCOUNT.LAPS_MISSING` | Implemented |
 
 ## Repository layout
 

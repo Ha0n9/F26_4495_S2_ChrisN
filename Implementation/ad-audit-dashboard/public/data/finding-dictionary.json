@@ -225,6 +225,44 @@
           "url": "https://www.cisa.gov/resources-tools/resources/detecting-and-mitigating-active-directory-compromises"
         }
       ]
+    },
+    "AD.ACCOUNT.LAPS_MISSING": {
+      "technicalName": "Local administrator passwords not managed by LAPS",
+      "title": "The local administrator password on these computers is not being changed automatically",
+      "category": "Account hygiene",
+      "defaultSeverity": "High",
+      "whyItMatters": "Every Windows computer has a built-in local administrator account. It is not a domain account, so the domain password policy does not touch it, and nothing makes it change on its own. When those passwords are set from an image, a build script, or a technician doing the same thing on every machine, they end up identical across the whole estate. One of them, read from one machine, is then a working administrator password on every machine. That is the ordinary way a single infected laptop becomes the whole network, and it needs no software flaw: the password simply works where it is tried next. LAPS is the tool that fixes this. It sets a different random password on each computer and rotates it on a schedule, so a password taken from one machine is worth nothing anywhere else. The Issue column below says which situation each computer is in. Not managed by LAPS means it has never been covered. Overdue for rotation means it was covered and has stopped, so the password sitting on it now is as old as the date shown. This finding reports that the control is missing. It cannot tell you whether those passwords actually are the same, which is a thing you confirm by hand.",
+      "whatToDo": [
+        "If the finding says LAPS is not installed in this domain at all, this is a project rather than a fix. Windows LAPS is built into current versions of Windows and Windows Server, so on a reasonably current estate there is usually nothing to install on the clients: the schema extension plus a Group Policy setting is the whole job.",
+        "Extend the schema with Update-LapsADSchema. This is a one-way change and needs Schema Admins, so do it deliberately, with a backup, and not for the first time on a production domain.",
+        "Decide who is allowed to read the passwords before you turn it on, and grant it with Set-LapsADReadPasswordPermission. Getting this wrong in the generous direction hands every helpdesk account a local administrator password for every machine, which trades one problem for another.",
+        "Grant the computers permission to write their own password with Set-LapsADComputerSelfPermission, scoped to the organizational units that hold them.",
+        "Turn it on by policy, under Computer Configuration, Administrative Templates, System, LAPS. Set the password to be backed up to Active Directory, and set a rotation age. Thirty days is the common choice.",
+        "For the computers listed as not managed, the usual cause is that the policy does not reach the organizational unit they sit in. Check where each one actually is in the directory before assuming the agent is broken.",
+        "For the computers listed as overdue, the password is still valid and still in place, so this is not harmless. Check whether the machine is still switched on and talking to the domain, and whether the policy that was managing it was changed or unlinked. A machine that has not been seen for months may simply be gone, in which case remove the computer account.",
+        "Do not treat this as finished once LAPS is deployed. Consider also disabling the built-in local administrator account where nothing needs it, so there is no password to manage in the first place."
+      ],
+      "objectColumnLabel": "Computer",
+      "keyAttributes": [
+        "issue",
+        "operatingSystem",
+        "passwordExpires",
+        "lastLogonDate"
+      ],
+      "references": [
+        {
+          "label": "Microsoft: Overview of Windows LAPS PowerShell cmdlets",
+          "url": "https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-management-powershell"
+        },
+        {
+          "label": "Microsoft: Windows LAPS schema extensions reference",
+          "url": "https://learn.microsoft.com/en-us/windows-server/identity/laps/laps-technical-reference"
+        },
+        {
+          "label": "Joint advisory: Detecting and mitigating Active Directory compromises",
+          "url": "https://www.cisa.gov/resources-tools/resources/detecting-and-mitigating-active-directory-compromises"
+        }
+      ]
     }
   }
 }

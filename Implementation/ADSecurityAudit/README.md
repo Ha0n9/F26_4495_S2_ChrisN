@@ -20,9 +20,31 @@ been verified against stubs and fixtures, and are waiting on a lab run.
 | Unconstrained delegation | `AD.PRIVILEGE.UNCONSTRAINED_DELEGATION` | Critical or High | Implemented |
 | Risky group policy settings | `AD.POLICY.RISKY_GPO` | Critical, High or Medium | Implemented |
 | Risky domain or forest trusts | `AD.TRUST.RISKY_TRUST` | Critical, High or Medium | Implemented |
+| Local administrator passwords not managed by LAPS | `AD.ACCOUNT.LAPS_MISSING` | High, Medium or Low | Implemented |
 
-One check from the proposal is left: LAPS deployment. It is scheduled last
-and is the first to be cut if the schedule does not allow it.
+Every check in the proposal is now implemented. What remains is evaluation,
+not detection.
+
+The LAPS check is the only one that reports something missing rather than
+something present, and that shape has consequences worth reading before the
+output is trusted.
+
+It never asks for a password. Only the expiration attributes are read, the
+property list it sends to the directory is recorded in the evidence as
+`propertiesRequested` so a reader can audit it, and
+`Tests/verify-laps-check.ps1` fails if any password attribute of either
+generation appears in any query the check makes. The point is not only that
+an ordinary account cannot read those attributes. It is that a tool which
+asks for every local administrator password in the domain would have to be
+trusted with them, and this one is built to need no such trust.
+
+It also reports one case as partial rather than clean. If the schema says
+LAPS exists and not one computer returns a readable expiration time, two
+explanations look identical from an ordinary account: nothing is managed, or
+the audit account has lost read access to the attribute. The finding is still
+reported, at High, because an unmanaged estate is the more dangerous reading
+and should not be withheld. A partial result goes out beside it naming the
+other explanation and how to settle it.
 
 The trust check carries a gap worth stating plainly. The current lab is a
 single domain with no trusts, so a lab run exercises only the path where the
@@ -117,6 +139,7 @@ ADSecurityAudit/
       Test-UnconstrainedDelegation.ps1
       Test-RiskyGroupPolicy.ps1
       Test-RiskyTrust.ps1
+      Test-LapsDeployment.ps1
   Tests/
     verify-stale-check.ps1      32 assertions
     verify-admin-check.ps1      40 assertions
@@ -124,8 +147,9 @@ ADSecurityAudit/
     verify-delegation-check.ps1 96 assertions
     verify-gpo-check.ps1       185 assertions
     verify-trust-check.ps1      74 assertions
+    verify-laps-check.ps1      134 assertions
     verify-aggregator.ps1       32 assertions
-    verify-lab-seeding.ps1      62 assertions, over ..\..\Lab
+    verify-lab-seeding.ps1      72 assertions, over ..\..\Lab
 ```
 
 ## Testing
@@ -138,6 +162,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\Tests\verify-delegation-check.ps1
 .\Tests\verify-gpo-check.ps1
 .\Tests\verify-trust-check.ps1
+.\Tests\verify-laps-check.ps1
 .\Tests\verify-aggregator.ps1
 .\Tests\verify-lab-seeding.ps1
 ```
@@ -189,6 +214,23 @@ that a check written against one English-language lab appears to get right:
 - The direction of a trust is written onto the affected object and never used
   to grade it. A test runs the same trust inbound, outbound and both ways and
   asserts the severity does not move.
+- The LAPS check asks the schema whether each generation is installed before
+  it reads a single computer, and builds its property list from the answer.
+  Asking the directory for an attribute that is not in the schema is an
+  error, so the alternative would be a check that fails on exactly the
+  domains it most needs to report on.
+- Where the schema is not extended at all, the computers are not enumerated
+  and the finding describes the domain. Listing every computer in the domain
+  as unmanaged would be true and useless.
+- A LAPS expiration value is read as a FILETIME, and three outcomes are kept
+  apart: no value, a value that is a time, and a value that is not. Only the
+  last is counted as unreadable. Zero is what LAPS writes before a password
+  exists, so it counts as absent, and treating it as malformed would put a
+  number in the report claiming corrupt data where there is an ordinary
+  initial state.
+- Windows LAPS wins over legacy where a computer has both, because a migrated
+  machine keeps the old attribute behind it and the newer agent is the one
+  rotating.
 
 `verify-gpo-check.ps1` is the one test that does not stub a filesystem. The
 group policy check takes its policy store as a parameter, so each case
